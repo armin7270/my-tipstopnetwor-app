@@ -1,0 +1,6 @@
+{
+  "name": "Liquid Obsidian Core",
+  "description": "Next-generation high-throughput networking HUD, tun2socks privacy engine, and low-level proxy client with tactile liquid glass materials and live telemetry.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

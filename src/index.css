@@ -1,0 +1,118 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-display: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body: 'Inter', 'Vazirmatn', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-persian: 'Vazirmatn', 'Inter', sans-serif;
+
+  --color-canvas: #0a0e18;
+  --color-surface-dim: #0f131d;
+  --color-surface-low: #171b26;
+  --color-surface: #1c1f2a;
+  --color-surface-high: #262a35;
+  --color-surface-highest: #313540;
+
+  --color-cyan-active: #00f2fe;
+  --color-cyan-glow: #00dce6;
+  --color-blue-flux: #4facfe;
+  --color-emerald-sec: #10b981;
+  --color-emerald-glow: #4edea3;
+  --color-amber-signal: #f59e0b;
+  --color-crimson-core: #ef4444;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: #0a0e18;
+  color: #dfe2f1;
+}
+
+/* Glass panel specular border & refractive optical index */
+.liquid-glass {
+  background: rgba(28, 31, 42, 0.65);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 16px 36px -10px rgba(0, 0, 0, 0.5),
+              inset 0 1px 0 0 rgba(255, 255, 255, 0.12);
+}
+
+.liquid-glass-active {
+  background: rgba(28, 31, 42, 0.78);
+  backdrop-filter: blur(28px) saturate(200%);
+  -webkit-backdrop-filter: blur(28px) saturate(200%);
+  border: 1px solid rgba(0, 242, 254, 0.35);
+  box-shadow: 0 20px 48px -12px rgba(0, 242, 254, 0.15),
+              inset 0 1px 0 0 rgba(0, 242, 254, 0.4);
+}
+
+.liquid-glass-connected {
+  background: rgba(28, 31, 42, 0.78);
+  backdrop-filter: blur(28px) saturate(200%);
+  -webkit-backdrop-filter: blur(28px) saturate(200%);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  box-shadow: 0 20px 48px -12px rgba(16, 185, 129, 0.2),
+              inset 0 1px 0 0 rgba(16, 185, 129, 0.45);
+}
+
+.liquid-glass-danger {
+  background: rgba(38, 20, 25, 0.75);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  box-shadow: 0 20px 48px -12px rgba(239, 68, 68, 0.25);
+}
+
+/* Subtle glowing pulse animations */
+@keyframes liquid-pulse-cyan {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 25px rgba(0, 242, 254, 0.3), inset 0 0 15px rgba(0, 242, 254, 0.2);
+  }
+  50% {
+    transform: scale(1.025);
+    box-shadow: 0 0 45px rgba(0, 242, 254, 0.55), inset 0 0 25px rgba(0, 242, 254, 0.35);
+  }
+}
+
+@keyframes liquid-pulse-emerald {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 30px rgba(16, 185, 129, 0.35), inset 0 0 20px rgba(16, 185, 129, 0.25);
+  }
+  50% {
+    transform: scale(1.03);
+    box-shadow: 0 0 60px rgba(16, 185, 129, 0.65), inset 0 0 30px rgba(78, 222, 163, 0.4);
+  }
+}
+
+.animate-liquid-cyan {
+  animation: liquid-pulse-cyan 3.2s ease-in-out infinite;
+}
+
+.animate-liquid-emerald {
+  animation: liquid-pulse-emerald 2.8s ease-in-out infinite;
+}
+
+/* Custom scrollbar for cybernetic precision logs & tables */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(15, 19, 29, 0.6);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(132, 148, 149, 0.3);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 242, 254, 0.5);
+}
