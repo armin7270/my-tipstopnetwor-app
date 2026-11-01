@@ -46,6 +46,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         </button>
       </div>
 
+      <div className="flex items-start gap-2 p-3 rounded-xl bg-[#00f2fe]/5 border border-[#00f2fe]/20">
+        <Layers className="w-4 h-4 mt-0.5 text-[#00f2fe] shrink-0" aria-hidden="true" />
+        <p className="text-[11px] font-mono leading-relaxed text-[#b9cacb]">
+          {language === 'fa'
+            ? 'این بخش پروفایل شبیه‌سازی و پارامترهای نمایشی را تنظیم می‌کند. تونل واقعی از موتور WireGuard در بالای همین صفحه استفاده می‌کند؛ انتخاب Xray یا tun2socks در اینجا فقط ظاهر و برچسب‌های HUD را تغییر می‌دهد.'
+            : 'These controls configure the demo profile and HUD labels. The real tunnel is always the WireGuard engine in the panel above — choosing Xray or tun2socks here only changes what the simulator displays.'}
+        </p>
+      </div>
+
       {/* Group 1: Routing Kernel Engine */}
       <div className="liquid-glass rounded-2xl p-5 md:p-6 space-y-4">
         <div className="flex items-center gap-2">

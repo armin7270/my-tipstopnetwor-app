@@ -4,6 +4,13 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] - 2026-11-01
+
+### Changed
+
+- The *Engine Config* screen now states clearly that its kernel/MTU toggles configure the demo
+  profile and HUD labels; the real tunnel is always the WireGuard engine.
+
 ## [1.1.0] — 2026-11-01
 
 The app now establishes **real, encrypted tunnels**.
