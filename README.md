@@ -5,7 +5,7 @@ matrix, split tunneling, live throughput telemetry and DNS-over-HTTPS controls â
 TypeScript, Vite 8 and Tailwind CSS v4.
 
 [![Live demo](https://img.shields.io/badge/demo-live-00f2fe)](https://armin7270.github.io/my-tipstopnetwor-app/)
-[![APK](https://img.shields.io/badge/APK-v1.1.0-10b981)](https://github.com/armin7270/my-tipstopnetwor-app/releases/latest)
+[![APK](https://img.shields.io/badge/APK-v1.1.1-10b981)](https://github.com/armin7270/my-tipstopnetwor-app/releases/latest)
 [![CI](https://github.com/armin7270/my-tipstopnetwor-app/actions/workflows/ci.yml/badge.svg)](https://github.com/armin7270/my-tipstopnetwor-app/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
