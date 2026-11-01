@@ -1,19 +1,25 @@
 # Building a real Android client
 
-This repository contains the **web interface** plus a ready-made WebView APK shell.
+This repository contains the **web interface** plus a working Android VPN app.
 
 ## 0. What ships today
 
-`release/LiquidObsidian-1.0.0-universal.apk` is a **signed, installable** build of that shell:
+Every `v*` tag publishes a **signed, installable** universal APK on
+[GitHub Releases](https://github.com/armin7270/my-tipstopnetwor-app/releases) (`v1.1.0`+):
 
-- `com.obsidian.core`, versionCode 1, minSdk 24, targetSdk 35
-- **Universal**: the APK contains no native libraries, so the same file runs on `arm64-v8a`,
-  `armeabi-v7a`, `x86` and `x86_64`. ABI splits would produce byte-identical APKs.
+- `com.obsidian.core`, minSdk 24, targetSdk 35, version derived from `package.json`
+- **Real tunnel**: the official `com.wireguard.android:tunnel` userspace engine (`libwg-go`) is
+  bundled for `arm64-v8a`, `armeabi-v7a`, `x86` and `x86_64`, and driven through
+  `android.net.VpnService` by `WireGuardEngine.java`.
+- **WireGuard only**: users import a standard `.conf` (`[Interface]` + `[Peer]`) in
+  *Engine Config → Real WireGuard tunnel*. Keys are stored in the app-private `files/wireguard/`
+  directory.
 - Assets are served from a synthetic `https://app.local` origin via `shouldInterceptRequest`,
   because Chromium blocks ES modules on `file://`.
-- It is still a **UI wrapper** — "connect" is simulated, exactly like the website.
+- The browser build still simulates telemetry — a browser cannot open a TUN device.
 
-The rest of this document describes what must be added to turn it into a real VPN client.
+The rest of this document describes the native pieces and how to extend the client beyond
+WireGuard.
 
 ---
 

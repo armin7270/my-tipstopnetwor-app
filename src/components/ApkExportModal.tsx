@@ -16,10 +16,10 @@ import { useDialog } from '../utils/use-dialog.ts';
 const REPO_URL = 'https://github.com/armin7270/my-tipstopnetwor-app';
 const BUILD_DOCS_URL = `${REPO_URL}/blob/main/docs/BUILD-ANDROID.md`;
 
-/** Signed universal build produced by `npm run apk` (see /release). */
+/** Signed universal build published by the Android CI workflow on every v* tag. */
 const APK_FILE = `LiquidObsidian-${__APP_VERSION__}-universal.apk`;
-const APK_URL = `${REPO_URL}/raw/main/release/${APK_FILE}`;
-const CHECKSUMS_URL = `${REPO_URL}/blob/main/release/SHA256SUMS.txt`;
+const APK_URL = `${REPO_URL}/releases/download/v${__APP_VERSION__}/${APK_FILE}`;
+const CHECKSUMS_URL = `${REPO_URL}/releases/tag/v${__APP_VERSION__}`;
 
 interface ApkExportModalProps {
   isOpen: boolean;
@@ -187,8 +187,8 @@ NOTE
           <Info className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
           <p className="text-[11px] leading-relaxed font-mono">
             {language === 'fa'
-              ? 'یک APK امضاشده و universal (سازگار با همه پردازنده‌ها) در پوشه release منتشر شده است. این بسته فقط رابط کاربری است و هسته VPN همچنان شبیه‌سازی می‌شود.'
-              : 'A signed universal APK is published in release/. It packages the interface only — the VPN engine is still simulated.'}{' '}
+              ? 'نسخه universal امضاشده در GitHub Releases منتشر می‌شود و شامل هسته واقعی WireGuard است؛ با این حال برای برقراری تونل باید فایل .conf سرویس‌دهنده خودتان را در بخش تنظیمات وارد کنید.'
+              : 'The signed universal build is published in GitHub Releases and ships the real WireGuard engine. You still need to import your own provider .conf under Settings to establish a tunnel.'}{' '}
             <a
               href={BUILD_DOCS_URL}
               target="_blank"
@@ -299,7 +299,7 @@ NOTE
               rel="noreferrer noopener"
               className="truncate text-[#849495] hover:text-[#00f2fe] underline"
             >
-              SHA-256: release/SHA256SUMS.txt
+              SHA-256: {`v${__APP_VERSION__}`} release assets
             </a>
             <button
               type="button"

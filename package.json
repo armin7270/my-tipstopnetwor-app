@@ -1,8 +1,8 @@
 {
   "name": "liquid-obsidian-core",
   "private": true,
-  "version": "1.0.0",
-  "description": "Liquid Obsidian Core — a networking HUD / proxy-client interface built with React 19, TypeScript, Vite and Tailwind CSS v4.",
+  "version": "1.1.0",
+  "description": "Liquid Obsidian Core - a networking HUD interface (React 19 + TypeScript + Vite) with a real WireGuard Android client.",
   "license": "MIT",
   "type": "module",
   "engines": {

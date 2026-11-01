@@ -1,18 +1,17 @@
 # Liquid Obsidian Core
 
-A networking-client **interface concept** — routing matrix, per-app split tunneling, live throughput
-telemetry and DNS-over-HTTPS controls — built with React 19, TypeScript, Vite 8 and Tailwind CSS v4.
+A networking-client **interface concept** with a **real WireGuard tunnel** on Android — routing
+matrix, split tunneling, live throughput telemetry and DNS-over-HTTPS controls — built with React 19,
+TypeScript, Vite 8 and Tailwind CSS v4.
 
 [![Live demo](https://img.shields.io/badge/demo-live-00f2fe)](https://armin7270.github.io/my-tipstopnetwor-app/)
-[![APK](https://img.shields.io/badge/APK-v1.0.0-10b981)](https://github.com/armin7270/my-tipstopnetwor-app/releases/latest)
+[![APK](https://img.shields.io/badge/APK-v1.1.0-10b981)](https://github.com/armin7270/my-tipstopnetwor-app/releases/latest)
 [![CI](https://github.com/armin7270/my-tipstopnetwor-app/actions/workflows/ci.yml/badge.svg)](https://github.com/armin7270/my-tipstopnetwor-app/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-> **Honest status:** this repository is a *front-end prototype*. Every speed, ping, connection and log
-> line is simulated in the browser. A signed, installable Android APK is provided, but it wraps this
-> interface only — there is no TUN device and no proxy core yet. See
-> [docs/BUILD-ANDROID.md](docs/BUILD-ANDROID.md) for the native work required, and
-> [docs/CODE_REVIEW.md](docs/CODE_REVIEW.md) for the full audit and roadmap.
+> **Status:** the Android app ships the official **WireGuard** userspace engine (`libwg-go`) behind a
+> real `VpnService`, so it tunnels device traffic with any standard `.conf`. The **browser demo**
+> cannot open a TUN device and therefore keeps simulating its telemetry — the UI says so explicitly.
 
 ![HUD overview](docs/screenshots/hud-desktop.png)
 
@@ -22,8 +21,12 @@ telemetry and DNS-over-HTTPS controls — built with React 19, TypeScript, Vite 
 
 ## Features
 
-- **Liquid-glass HUD** — tactile connection orb with connected/connecting/disconnecting states.
-- **Throughput telemetry** — 1 Hz sampling, SVG waveform, peak and session totals.
+- **Real WireGuard tunnel (Android)** — official `com.wireguard.android:tunnel` engine, `VpnService`
+  consent flow, import/select/connect, live RX/TX from the Go backend.
+- **Liquid-glass HUD** — tactile connection orb; when a WireGuard config is selected the orb drives
+  the real tunnel, otherwise it stays in demo mode.
+- **Throughput telemetry** — 1 Hz sampling, SVG waveform, peak and session totals; real counters for
+  the native tunnel.
 - **Routing matrix** — ordered dispatch rules with a live evaluator that understands CIDR blocks,
   `*.wildcard` domains, domain suffixes, `geosite:` / `geoip:` categories and a `FINAL` catch-all.
 - **Per-app split tunneling** — per-package proxy/direct switches.
@@ -32,7 +35,7 @@ telemetry and DNS-over-HTTPS controls — built with React 19, TypeScript, Vite 
 - **Diagnostics** — leak-audit panel, socket table and a filterable kernel log console.
 - **Bilingual UI** — full English/Persian switching with document-level RTL.
 - **Session persistence** — settings, favourites, imported nodes, locale and active tab survive reload.
-- **Android APK** — signed universal build (`release/`), one file for every CPU architecture, API 24+.
+- **Android APK** — signed universal build with native code for all four ABIs, published on Releases.
 - **Deploy-ready** — SPA fallback configs for Vercel, Netlify, GitHub Pages, Docker and a local server.
 
 ## Quick start
@@ -50,16 +53,23 @@ npm run build
 npm start            # http://127.0.0.1:8080  (PORT=... to change)
 ```
 
-## Android APK
+## Android APK (real VPN)
 
 | | |
 | --- | --- |
-| File | [`release/LiquidObsidian-1.0.0-universal.apk`](release/LiquidObsidian-1.0.0-universal.apk) (165 KB) |
-| Package | `com.obsidian.core` — versionCode 1, versionName 1.0.0 |
+| Download | [latest release](https://github.com/armin7270/my-tipstopnetwor-app/releases/latest) |
+| Package | `com.obsidian.core` — versionName 1.1.0 |
 | Requirements | Android 7.0+ (API 24), targetSdk 35 |
-| Architecture | **Universal** — `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64` (the app contains no native code, so one APK covers every device) |
+| Architecture | **Universal** — `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64` (native `libwg-go.so` for each) |
+| Engine | Official WireGuard userspace (`com.wireguard.android:tunnel` → libwg-go) |
 | Signature | APK Signature Scheme v2 + v3, RSA-4096 |
-| SHA-256 | see [`release/SHA256SUMS.txt`](release/SHA256SUMS.txt) |
+
+**Using it:** install the APK → open **Engine Config** → *Real WireGuard tunnel* → paste (or pick) your
+provider's `.conf` → **Save** → press **Connect** (accept the system VPN prompt). From then on the big
+orb on the HUD also controls that tunnel, and all device traffic is routed through it.
+
+The private key is stored in the app's private files directory (`files/wireguard/`) and never leaves
+the device. No analytics, no backend.
 
 Install by side-loading: copy the APK to the device, allow *Install unknown apps* for your file
 manager, open the file and accept the prompt. The launcher icon is generated from
@@ -68,6 +78,9 @@ manager, open the file and accept the prompt. The launcher icon is generated fro
 The app loads the web bundle from a synthetic `https://app.local` origin (intercepted inside the
 WebView) because Chromium refuses ES modules over `file://` — this also keeps `localStorage`
 working normally.
+
+> WireGuard is the supported protocol today. The VLESS/Hysteria2 entries you see in *Routing Nodes*
+> are demo fixtures; importing such links only populates the UI and does not create a tunnel yet.
 
 Rebuild it yourself:
 
@@ -78,7 +91,7 @@ npm run apk              # Gradle wrapper build → release/
 ```
 
 `npm run apk` needs JDK 17+ and `ANDROID_HOME`; see [android/README.md](android/README.md) for
-signing and CI details. CI builds the APK on every `v*` tag
+signing and CI details. CI builds and signs the APK on every `v*` tag and attaches it to the release
 ([`.github/workflows/android-apk.yml`](.github/workflows/android-apk.yml)).
 
 ## Scripts

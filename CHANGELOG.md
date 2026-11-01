@@ -4,6 +4,39 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] — 2026-11-01
+
+The app now establishes **real, encrypted tunnels**.
+
+### Added
+
+- **Native WireGuard engine** — `com.wireguard.android:tunnel:1.0.20260102` (official userspace
+  `libwg-go`) embedded for `arm64-v8a`, `armeabi-v7a`, `x86` and `x86_64`, driven through
+  `android.net.VpnService`.
+- **JavaScript bridge** (`window.ObsidianNative`) exposing status, config import/select/delete,
+  connect/disconnect and live RX/TX counters to the React UI.
+- **WireGuard panel** in *Engine Config*: paste or pick a `.conf`, validate it, store it in
+  app-private storage, select and connect. Errors and state transitions surface in the UI and the
+  kernel log console.
+- **HUD integration** — when a WireGuard config is selected, the main orb starts/stops the real
+  tunnel, the active-node card shows the real endpoint, and telemetry switches to the tunnel's
+  counters plus a real RTT probe.
+- `VpnService.prepare()` consent flow with clear denial handling.
+- Android CI now builds a **signed** release APK from repository secrets and attaches it to the
+  GitHub Release.
+
+### Changed
+
+- `versionName`/`versionCode` derive from `package.json` (`1.1.0` → `10100`).
+- APK artifacts are published on Releases only; `release/` keeps a pointer document.
+- Android builds enable `android.useAndroidX` (required by the WireGuard library).
+- The "Android Build Hub" dialog links to the signed release asset for the running version.
+
+### Notes
+
+- WireGuard is the supported protocol. VLESS / Hysteria2 / Shadowsocks entries remain demo fixtures.
+- Browser builds keep the simulator; only the Android app can open a TUN device.
+
 ## [1.0.0] — 2026-11-01
 
 First hardened release of the interface prototype, plus an installable Android build.

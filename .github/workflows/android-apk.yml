@@ -73,7 +73,8 @@ jobs:
       - name: Collect artifacts
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          mkdir -p release
+          # Start clean so pre-existing files in release/ never leak into the artifact.
+          rm -rf release && mkdir -p release
           find android/app/build/outputs/apk -name '*.apk' | while read -r apk; do
             case "$apk" in
               *debug*) NAME="LiquidObsidian-${VERSION}-universal-debug.apk" ;;

@@ -175,8 +175,8 @@ manifest** واقعی (شامل دستورهای `npm ci`, `cap add android`, `g
 
 ### ۳.۷ پوسته اندروید و APK امضاشده
 
-پروژه هیچ لایه اندرویدی نداشت. یک پوسته بومی سبک اضافه شد (`android/`) بدون AndroidX و بدون
-کتابخانه بومی:
+پروژه هیچ لایه اندرویدی نداشت. یک پوسته بومی سبک اضافه شد (`android/`) بدون کتابخانه بومی در
+نسخه ۱.۰.۰ و سپس در نسخه ۱.۱.۰ به یک **کلاینت واقعی WireGuard** تبدیل شد:
 
 - `MainActivity` یک `WebView` است که بسته وب را از یک origin ساختگی `https://app.local` با
   `shouldInterceptRequest` سرو می‌کند. دلیل فنی: کرومیوم ماژول‌های ES را از `file://` بلاک می‌کند و
@@ -185,23 +185,35 @@ manifest** واقعی (شامل دستورهای `npm ci`, `cap add android`, `g
 - آیکون‌های لانچر از `public/favicon.svg` در پنج تراکم تولید شدند.
 - APK نهایی با کلید RSA-4096 امضا و با `apksigner verify` تأیید شد (v2 + v3).
 
-نکته مهم درباره «همه پردازنده‌ها»: بسته هیچ کد بومی (`.so`) ندارد، پس **یک** APK universal روی
-`arm64-v8a`، `armeabi-v7a`، `x86` و `x86_64` نصب می‌شود. ساخت چهار فایل جدا برای هر ABI در این
-معماری بی‌معناست و فقط همان بایت‌ها را تکرار می‌کند؛ بنابراین یک فایل با نام `universal` منتشر شد.
+**نسخه ۱.۱.۰ — تونل واقعی:**
+
+- کتابخانه رسمی `com.wireguard.android:tunnel:1.0.20260102` (هسته userspace `libwg-go`) برای هر چهار
+  معماری در APK قرار گرفت و از طریق `android.net.VpnService` اجرا می‌شود.
+- `WireGuardEngine` چرخه اتصال/قطع، آمار RX/TX و مدیریت خطا را بر عهده دارد؛
+  `NativeBridge` آن را به‌صورت `window.ObsidianNative` در اختیار React می‌گذارد و
+  `ConfigStore` فایل‌های `.conf` را فقط در حافظه خصوصی برنامه ذخیره می‌کند.
+- جریان رضایت `VpnService.prepare()`، رد شدن مجوز، و حالت‌های connecting/up/down/error به UI منتقل شد.
+- در HUD، وقتی یک کانفیگ WireGuard انتخاب شده باشد، دکمه اصلی همان تونل واقعی را روشن/خاموش می‌کند.
+
+نکته درباره «همه پردازنده‌ها»: اکنون بسته شامل کد بومی است، اما همان **یک** فایل universal هر چهار
+معماری (`arm64-v8a`، `armeabi-v7a`، `x86`، `x86_64`) را در خود دارد؛ بنابراین نصب روی همه دستگاه‌ها
+با یک فایل انجام می‌شود.
+
+محدودیت فعلی: پروتکل‌های VLESS/Hysteria2/Shadowsocks در UI فقط دمو هستند؛ تونل واقعی فعلاً فقط
+WireGuard است.
 
 ## ۴. نتایج اعتبارسنجی
 
 ```
 typecheck      tsc --noEmit          0 خطا (strict)
 tests          13/13 pass            node:test
-build          index.js 339.70 kB → gzip 100.67 kB
-               index.css 56.12 kB → gzip 9.82 kB
 browser        0 console error, 0 uncaught exception
 responsive     1440×1000 و 390×844 بدون overflow
-apk            release/LiquidObsidian-1.0.0-universal.apk (169,090 bytes)
-               package com.obsidian.core · minSdk 24 · targetSdk 35
-               امضا: v2 + v3 · RSA-4096 · apksigner verify = OK
-               محتوا: classes.dex + assets/www/* با مسیرهای استاندارد
+apk 1.0.0      بدون کد بومی · 169,090 bytes · امضای v2+v3
+apk 1.1.0      Gradle build (CI) · شامل libwg-go.so برای ۴ معماری
+               GoBackend$VpnService در manifest با BIND_VPN_SERVICE
+               کلاس‌های com.obsidian.core در classes2/3.dex
+               نسخه ۱.۱.۰ · versionCode 10100 · امضای release
 ```
 
 سناریوهای تست‌شده در Chrome headless: ناوبری بین تب‌ها، ارزیابی قاعده، تایپ دامنه، سوییچ زبان و
@@ -212,11 +224,11 @@ apk            release/LiquidObsidian-1.0.0-universal.apk (169,090 bytes)
 
 ## ۵. کارهای باقی‌مانده (به ترتیب اولویت)
 
-1. **پل بومی (Native bridge)** — پوسته APK آماده است، اما تا زمانی که `VpnService` + `tun2socks`/`sing-box`
-   اضافه نشود، این محصول یک دموی بصری است. مسیر پیشنهادی: تکمیل همان `android/` با `VpnService`،
-   یا UI بومی Compose.
-2. **داده واقعی telemetry** — جایگزینی `Math.random()` با رویدادهای هسته (بایت‌های RX/TX، پینگ واقعی،
-   سوکت‌های فعال، خروجی لاگ).
+1. **پشتیبانی از پروتکل‌های بیشتر** — تونل واقعی اکنون با WireGuard کار می‌کند (نسخه ۱.۱.۰). برای
+   VLESS/REALITY، Hysteria2 و Shadowsocks باید `sing-box` یا `xray-core` به‌صورت `.aar` بومی اضافه و
+   به همان `VpnService` وصل شود؛ در حال حاضر این نودها فقط دمو هستند.
+2. **داده واقعی برای همه بخش‌ها** — HUD برای تونل WireGuard واقعی است، اما جدول سوکت‌ها و بخشی از
+   تله‌متری همچنان شبیه‌سازی می‌شوند و باید از هسته خوانده شوند.
 3. **بک‌اند اشتراک** — سرویس دریافت لینک اشتراک، امضای کانفیگ، مدیریت کاربر و محدودیت پهنای باند.
 4. **تکمیل i18n و RTL** — استخراج همه رشته‌ها به دیکشنری (اکنون حدود ۴۰٪ متن‌ها hard-code است)،
    بررسی همه صفحات با `dir=rtl`.
