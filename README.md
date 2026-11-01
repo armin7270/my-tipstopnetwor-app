@@ -3,6 +3,11 @@
 A networking-client **interface concept** — routing matrix, per-app split tunneling, live throughput
 telemetry and DNS-over-HTTPS controls — built with React 19, TypeScript, Vite 8 and Tailwind CSS v4.
 
+[![Live demo](https://img.shields.io/badge/demo-live-00f2fe)](https://armin7270.github.io/my-tipstopnetwor-app/)
+[![APK](https://img.shields.io/badge/APK-v1.0.0-10b981)](https://github.com/armin7270/my-tipstopnetwor-app/releases/latest)
+[![CI](https://github.com/armin7270/my-tipstopnetwor-app/actions/workflows/ci.yml/badge.svg)](https://github.com/armin7270/my-tipstopnetwor-app/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 > **Honest status:** this repository is a *front-end prototype*. Every speed, ping, connection and log
 > line is simulated in the browser. A signed, installable Android APK is provided, but it wraps this
 > interface only — there is no TUN device and no proxy core yet. See
