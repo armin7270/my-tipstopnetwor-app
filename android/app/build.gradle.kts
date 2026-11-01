@@ -18,6 +18,25 @@ val keystoreProps = Properties().apply {
 fun secret(key: String, env: String, fallback: String? = null): String? =
     keystoreProps.getProperty(key) ?: System.getenv(env) ?: fallback
 
+/** Single source of truth for the version: package.json at the repository root. */
+val appVersion: String = run {
+    val packageJson = rootProject.file("../package.json")
+    if (!packageJson.exists()) return@run "1.0.0"
+    Regex("\"version\"\\s*:\\s*\"([^\"]+)\"")
+        .find(packageJson.readText())
+        ?.groupValues
+        ?.getOrNull(1)
+        ?: "1.0.0"
+}
+
+fun versionCodeOf(version: String): Int {
+    val parts = version.split('-', '+').first().split('.').mapNotNull { it.toIntOrNull() }
+    val major = parts.getOrElse(0) { 1 }
+    val minor = parts.getOrElse(1) { 0 }
+    val patch = parts.getOrElse(2) { 0 }
+    return major * 10_000 + minor * 100 + patch
+}
+
 android {
     namespace = "com.obsidian.core"
     compileSdk = 35
@@ -26,8 +45,9 @@ android {
         applicationId = "com.obsidian.core"
         minSdk = 24
         targetSdk = 35
-        versionCode = (secret("versionCode", "OBSIDIAN_VERSION_CODE", "1") ?: "1").toInt()
-        versionName = secret("versionName", "OBSIDIAN_VERSION_NAME", "1.0.0")
+        versionCode = (secret("versionCode", "OBSIDIAN_VERSION_CODE", versionCodeOf(appVersion).toString())
+            ?: "1").toInt()
+        versionName = secret("versionName", "OBSIDIAN_VERSION_NAME", appVersion)
     }
 
     signingConfigs {
@@ -95,3 +115,10 @@ tasks.named("preBuild") {
 tasks.matching { it.name.endsWith("Assets") && it.name != "syncWebAssets" }.configureEach {
     dependsOn(syncWebAssets)
 }
+
+dependencies {
+    // Official WireGuard userspace engine (libwg-go.so for all four ABIs) plus the
+    // embeddable backend that drives android.net.VpnService.
+    implementation("com.wireguard.android:tunnel:1.0.20260102")
+}
+

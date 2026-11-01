@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.graphics.Color;
 import android.net.Uri;
+import android.net.VpnService;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.Window;
@@ -26,20 +27,23 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Thin WebView shell around the Vite bundle in {@code assets/www}.
+ * WebView shell around the Vite bundle, plus the native VPN surface:
  *
- * The bundle is served from a synthetic {@code https://app.local} origin instead of
- * {@code file://} because Chromium refuses to load ES modules from file URLs (CORS),
- * and because a real origin makes localStorage/DOM storage behave predictably.
- *
- * The interface is fully client-side, so the app ships no native libraries and the
- * same APK installs on every CPU architecture.
+ * <ul>
+ *   <li>the bundle is served from a synthetic {@code https://app.local} origin
+ *       (Chromium refuses ES modules over {@code file://});</li>
+ *   <li>{@link NativeBridge} is injected as {@code window.ObsidianNative};</li>
+ *   <li>{@link WireGuardEngine} owns the real tunnel through the official
+ *       WireGuard userspace library, which contributes {@code libwg-go.so} for
+ *       arm64-v8a, armeabi-v7a, x86 and x86_64.</li>
+ * </ul>
  */
 public class MainActivity extends Activity {
 
     private static final String APP_HOST = "app.local";
     private static final String APP_URL = "https://" + APP_HOST + "/index.html";
     private static final int CANVAS = Color.parseColor("#0A0E18");
+    private static final int REQUEST_VPN = 1001;
 
     private static final Map<String, String> MIME_TYPES = new HashMap<>();
 
@@ -60,6 +64,10 @@ public class MainActivity extends Activity {
     }
 
     private WebView webView;
+    private ConfigStore configStore;
+    private WireGuardEngine engine;
+    private NativeBridge bridge;
+    private String pendingConnectId;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -71,6 +79,10 @@ public class MainActivity extends Activity {
         window.setNavigationBarColor(CANVAS);
         // Light status/navigation icons on the dark canvas.
         window.getDecorView().setSystemUiVisibility(0);
+
+        configStore = new ConfigStore(this);
+        engine = new WireGuardEngine(this, this::notifyWebView);
+        bridge = new NativeBridge(this, configStore, engine);
 
         webView = new WebView(this);
         webView.setBackgroundColor(CANVAS);
@@ -87,6 +99,7 @@ public class MainActivity extends Activity {
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(false);
+        settings.setAllowUniversalAccessFromFileURLs(false);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setTextZoom(100);
 
@@ -121,12 +134,63 @@ public class MainActivity extends Activity {
             }
         });
 
+        webView.addJavascriptInterface(bridge, "ObsidianNative");
+
         if ((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
             WebView.setWebContentsDebuggingEnabled(true);
         }
 
         setContentView(webView);
         webView.loadUrl(APP_URL);
+    }
+
+    /** Called from the JS bridge; shows the system VPN consent dialog when required. */
+    void requestConnect(String id) {
+        Intent permissionIntent = VpnService.prepare(this);
+        if (permissionIntent != null) {
+            pendingConnectId = id;
+            try {
+                startActivityForResult(permissionIntent, REQUEST_VPN);
+            } catch (ActivityNotFoundException exception) {
+                pendingConnectId = null;
+                engine.reportError("This device does not expose a VPN consent dialog");
+            }
+            return;
+        }
+        startTunnel(id);
+    }
+
+    private void startTunnel(String id) {
+        String config = configStore.read(id);
+        if (config == null || config.trim().isEmpty()) {
+            engine.reportError("Configuration file is missing");
+            return;
+        }
+        engine.connect(configStore.tunnelName(id), config);
+    }
+
+    private void notifyWebView() {
+        runOnUiThread(() -> {
+            if (webView != null) {
+                webView.evaluateJavascript(
+                        "window.__obsidianVpnEvent && window.__obsidianVpnEvent();", null);
+            }
+        });
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQUEST_VPN) {
+            return;
+        }
+        String id = pendingConnectId;
+        pendingConnectId = null;
+        if (resultCode == RESULT_OK && id != null) {
+            startTunnel(id);
+        } else {
+            engine.reportError("VPN permission was denied");
+        }
     }
 
     /** Maps a request path onto {@code assets/www}, falling back to index.html for SPA routes. */
@@ -180,9 +244,7 @@ public class MainActivity extends Activity {
     private WebResourceResponse emptyResponse(String mime, int status) {
         WebResourceResponse response =
                 new WebResourceResponse(mime, "utf-8", new ByteArrayInputStream(new byte[0]));
-        if (Build.VERSION.SDK_INT >= 21) {
-            response.setStatusCodeAndReasonPhrase(status, status == 403 ? "Forbidden" : "Not Found");
-        }
+        response.setStatusCodeAndReasonPhrase(status, status == 403 ? "Forbidden" : "Not Found");
         return response;
     }
 
@@ -206,6 +268,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         if (webView != null) {
+            webView.removeJavascriptInterface("ObsidianNative");
             webView.loadUrl("about:blank");
             webView.destroy();
             webView = null;
