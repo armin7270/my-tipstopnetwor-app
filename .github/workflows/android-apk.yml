@@ -26,7 +26,19 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
+      # The hosted runner already ships the Android SDK. The old
+      # android-actions/setup-android action is no longer usable because it tries
+      # to install the retired "tools" package, so we only add what we need.
+      - name: Prepare Android SDK
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          SDKMGR="$(find "$SDK_ROOT" -path '*/cmdline-tools/*/bin/sdkmanager' | head -n 1)"
+          echo "Using $SDKMGR"
+          yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
+          "$SDKMGR" --install "platforms;android-35" "build-tools;35.0.0" > /dev/null
+          ls "$SDK_ROOT/platforms" "$SDK_ROOT/build-tools"
 
       - name: Install web dependencies
         run: npm ci
@@ -60,8 +72,15 @@ jobs:
 
       - name: Collect artifacts
         run: |
+          VERSION=$(node -p "require('./package.json').version")
           mkdir -p release
-          find android/app/build/outputs/apk -name '*.apk' -exec cp {} release/ \;
+          find android/app/build/outputs/apk -name '*.apk' | while read -r apk; do
+            case "$apk" in
+              *debug*) NAME="LiquidObsidian-${VERSION}-universal-debug.apk" ;;
+              *)       NAME="LiquidObsidian-${VERSION}-universal.apk" ;;
+            esac
+            cp "$apk" "release/$NAME"
+          done
           cd release && sha256sum *.apk > SHA256SUMS.txt && ls -la
 
       - uses: actions/upload-artifact@v4
