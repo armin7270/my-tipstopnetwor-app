@@ -8,6 +8,8 @@ import { RulesMatrixScreen } from './components/RulesMatrixScreen.tsx';
 import { DiagnosticsScreen } from './components/DiagnosticsScreen.tsx';
 import { SettingsScreen } from './components/SettingsScreen.tsx';
 import { MobileBottomNav } from './components/MobileBottomNav.tsx';
+import { QuickActionsFloatingMenu } from './components/QuickActionsFloatingMenu.tsx';
+import { ApkExportModal } from './components/ApkExportModal.tsx';
 import {
   INITIAL_NODES,
   INITIAL_RULES,
@@ -36,6 +38,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'hud' | 'nodes' | 'matrix' | 'diagnostics' | 'settings'>('hud');
   const [isMobilePreview, setIsMobilePreview] = useState(false);
   const [language, setLanguage] = useState<'en' | 'fa'>('en');
+  const [isApkModalOpen, setIsApkModalOpen] = useState(false);
 
   // Network Core state
   const [status, setStatus] = useState<ConnectionStatus>(autoStart ? 'connected' : 'disconnected');
@@ -245,6 +248,7 @@ export default function App() {
         setLanguage={setLanguage}
         isMobilePreview={isMobilePreview}
         setIsMobilePreview={setIsMobilePreview}
+        onOpenApkHub={() => setIsApkModalOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -433,6 +437,17 @@ export default function App() {
         </div>
       </main>
 
+      {/* Quick Actions Floating Menu in the HUD */}
+      {activeTab === 'hud' && (
+        <QuickActionsFloatingMenu
+          settings={settings}
+          setSettings={setSettings}
+          setLogs={setLogs}
+          language={language}
+          onOpenApkHub={() => setIsApkModalOpen(true)}
+        />
+      )}
+
       {/* Persistent Mobile Bottom Bar on phones / small screens */}
       {!isMobilePreview && (
         <MobileBottomNav
@@ -441,6 +456,13 @@ export default function App() {
           language={language}
         />
       )}
+
+      {/* Android Pre-Built APK Package Hub Modal */}
+      <ApkExportModal
+        isOpen={isApkModalOpen}
+        onClose={() => setIsApkModalOpen(false)}
+        language={language}
+      />
     </div>
   );
 }

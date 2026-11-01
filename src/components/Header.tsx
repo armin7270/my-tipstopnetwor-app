@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, Globe2, Zap, AlertTriangle } from 'lucide-react';
+import { Shield, Globe2, Zap, AlertTriangle, Download } from 'lucide-react';
 import { ConnectionStatus } from '../types/index.ts';
 import { TRANSLATIONS } from '../utils/network-core.ts';
 
@@ -13,6 +13,7 @@ interface HeaderProps {
   setLanguage: (lang: 'en' | 'fa') => void;
   isMobilePreview: boolean;
   setIsMobilePreview: (val: boolean) => void;
+  onOpenApkHub?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -25,6 +26,7 @@ export const Header: React.FC<HeaderProps> = ({
   setLanguage,
   isMobilePreview,
   setIsMobilePreview,
+  onOpenApkHub,
 }) => {
   const t = TRANSLATIONS[language];
   const isConnected = status === 'connected';
@@ -138,12 +140,24 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Persian / English language toggle */}
           <button
             onClick={() => setLanguage(language === 'en' ? 'fa' : 'en')}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-[#dfe2f1] transition-colors"
+            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-[#dfe2f1] transition-colors cursor-pointer"
             title="Switch Language (English / فارسی)"
           >
             <Globe2 className="w-3.5 h-3.5 text-[#4facfe]" />
             <span className="whitespace-nowrap">{t.languageToggle}</span>
           </button>
+
+          {/* Android APK Hub trigger */}
+          {onOpenApkHub && (
+            <button
+              onClick={onOpenApkHub}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-mono font-medium rounded-lg bg-[#00f2fe]/10 hover:bg-[#00f2fe]/20 border border-[#00f2fe]/30 text-[#00f2fe] transition-colors cursor-pointer"
+              title="Download Android APK for all CPU architectures"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span className="whitespace-nowrap font-bold">APK</span>
+            </button>
+          )}
 
           {/* Kill Switch Toggle Button */}
           <button

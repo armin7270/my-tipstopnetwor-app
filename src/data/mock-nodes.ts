@@ -360,6 +360,7 @@ export const DEFAULT_SETTINGS: CoreSettings = {
   strictRoute: true,
   killSwitch: true,
   autoConnectOnWifi: true,
+  enableDoh: true,
   glassBlurQuality: 'high',
   language: 'en',
 };

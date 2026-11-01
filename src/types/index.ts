@@ -87,6 +87,7 @@ export interface CoreSettings {
   strictRoute: boolean;
   killSwitch: boolean;
   autoConnectOnWifi: boolean;
+  enableDoh: boolean;
   glassBlurQuality: 'high' | 'medium' | 'performance';
   language: 'en' | 'fa';
 }
