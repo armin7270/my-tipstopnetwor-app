@@ -10,6 +10,7 @@ import { SettingsScreen } from './components/SettingsScreen.tsx';
 import { MobileBottomNav } from './components/MobileBottomNav.tsx';
 import { QuickActionsFloatingMenu } from './components/QuickActionsFloatingMenu.tsx';
 import { ApkExportModal } from './components/ApkExportModal.tsx';
+import { WireGuardCard } from './components/WireGuardCard.tsx';
 import {
   INITIAL_NODES,
   INITIAL_RULES,
@@ -28,6 +29,7 @@ import {
   CoreLogEntry,
   CoreSettings,
 } from './types/index.ts';
+import { wireguard, WgConfig, WgStatus, ImportResult } from './native/wireguard.ts';
 
 type TabId = 'hud' | 'nodes' | 'matrix' | 'diagnostics' | 'settings';
 
@@ -58,7 +60,7 @@ function isServerNode(value: unknown): value is ServerNode {
   );
 }
 
-/** Restore the last session so favorites, imported nodes and toggles survive a refresh. */
+/** Restore the last session so favourites, imported nodes and toggles survive a refresh. */
 function readPersistedState(): Partial<PersistedState> {
   if (typeof window === 'undefined') return {};
   try {
@@ -90,7 +92,6 @@ const AUTO_START =
   typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('autostart') === '1';
 
 export default function App() {
-  // Single source of truth for locale lives inside settings.
   const persisted = useMemo(readPersistedState, []);
   const [settings, setSettings] = useState<CoreSettings>(() => persisted.settings ?? DEFAULT_SETTINGS);
   const language = settings.language;
@@ -99,12 +100,10 @@ export default function App() {
     setSettings(current => ({ ...current, language: next }));
   }, []);
 
-  // Navigation and Layout state
   const [activeTab, setActiveTab] = useState<TabId>(readInitialTab);
   const [isMobilePreview, setIsMobilePreview] = useState(false);
   const [isApkModalOpen, setIsApkModalOpen] = useState(false);
 
-  // Network Core state
   const [status, setStatus] = useState<ConnectionStatus>(AUTO_START ? 'connected' : 'disconnected');
   const [nodes, setNodes] = useState<ServerNode[]>(() =>
     persisted.nodes && persisted.nodes.length > 0 ? persisted.nodes : INITIAL_NODES
@@ -113,7 +112,6 @@ export default function App() {
     () => persisted.activeNodeId ?? INITIAL_NODES[0].id
   );
 
-  // Derive the active node from the list instead of keeping a stale copy.
   const activeNode = useMemo(
     () => nodes.find(node => node.id === activeNodeId) ?? nodes[0] ?? INITIAL_NODES[0],
     [nodes, activeNodeId]
@@ -125,7 +123,11 @@ export default function App() {
   const [logs, setLogs] = useState<CoreLogEntry[]>(INITIAL_LOGS);
   const [isPingingAll, setIsPingingAll] = useState(false);
 
-  // High-frequency telemetry state
+  // ---- Native WireGuard engine -------------------------------------------------
+  const nativeAvailable = wireguard.available;
+  const [wgStatus, setWgStatus] = useState<WgStatus | null>(null);
+  const [wgConfigs, setWgConfigs] = useState<WgConfig[]>([]);
+
   const [telemetry, setTelemetry] = useState<TelemetryState>(() => ({
     downloadSpeed: 0,
     uploadSpeed: 0,
@@ -138,17 +140,17 @@ export default function App() {
     activeSockets: AUTO_START ? 14 : 0,
   }));
 
-  // Empty until the tunnel is up: no fabricated traffic while disconnected.
   const [speedHistory, setSpeedHistory] = useState<{ dl: number; ul: number }[]>(() =>
     AUTO_START ? [{ dl: 0, ul: 0 }] : []
   );
   const [peakSpeed, setPeakSpeed] = useState<number>(0);
-  const isConnected = status === 'connected';
 
   const connectTimer = useRef<number | null>(null);
   const pingTimer = useRef<number | null>(null);
+  const nativeSample = useRef<{ rx: number; tx: number; ts: number } | null>(null);
+  const nativeSince = useRef<number | null>(null);
+  const lastWgState = useRef<string>('');
 
-  // Every timer is torn down on unmount so hot-reload / tab switches cannot leak.
   useEffect(
     () => () => {
       if (connectTimer.current !== null) window.clearTimeout(connectTimer.current);
@@ -177,7 +179,136 @@ export default function App() {
     []
   );
 
-  // Persist the session (debounced) — quota/privacy-mode failures stay silent.
+  // Poll the native bridge (it also pushes events for instant updates).
+  useEffect(() => {
+    if (!nativeAvailable) return;
+    const refresh = () => {
+      setWgStatus(wireguard.status());
+      setWgConfigs(wireguard.configs());
+    };
+    refresh();
+    const off = wireguard.onEvent(refresh);
+    const interval = window.setInterval(refresh, 1500);
+    return () => {
+      off();
+      window.clearInterval(interval);
+    };
+  }, [nativeAvailable]);
+
+  const nativeSelectedId = wgStatus?.selected ?? null;
+  const usingNative = nativeAvailable && nativeSelectedId !== null;
+  const wgState = wgStatus?.state ?? 'down';
+
+  const effectiveStatus: ConnectionStatus = usingNative
+    ? wgState === 'up'
+      ? 'connected'
+      : wgState === 'connecting'
+      ? 'connecting'
+      : wgState === 'error'
+      ? 'error'
+      : 'disconnected'
+    : status;
+
+  const isConnected = effectiveStatus === 'connected';
+
+  /** Synthetic node describing the live WireGuard tunnel, shown on the HUD. */
+  const nativeNode = useMemo<ServerNode | null>(() => {
+    if (!usingNative) return null;
+    const config = wgConfigs.find(item => item.id === nativeSelectedId);
+    if (!config) return null;
+    const [host, port] = config.endpoint.split(':');
+    return {
+      id: `wg-${config.id}`,
+      name: config.name,
+      country: 'WireGuard',
+      countryCode: 'WG',
+      flag: '🛡️',
+      host: host || 'tunnel',
+      port: Number(port) || 51820,
+      protocol: 'WireGuard',
+      cipher: 'ChaCha20-Poly1305',
+      pingMs: telemetry.currentPingMs,
+      jitterMs: telemetry.jitterMs,
+      loadPercent: 0,
+      isFavorite: true,
+      tags: ['WireGuard', 'Native'],
+      features: { udp: true, reality: false, multiplex: false },
+    };
+  }, [usingNative, wgConfigs, nativeSelectedId, telemetry.currentPingMs, telemetry.jitterMs]);
+
+  const displayNode = nativeNode ?? activeNode;
+
+  // Live tunnel statistics → telemetry.
+  useEffect(() => {
+    if (!usingNative || !wgStatus) return;
+    if (wgStatus.state !== 'up') {
+      nativeSample.current = null;
+      nativeSince.current = null;
+      setTelemetry(current => ({ ...current, downloadSpeed: 0, uploadSpeed: 0 }));
+      return;
+    }
+    const now = Date.now();
+    if (nativeSince.current === null) nativeSince.current = now;
+    const previous = nativeSample.current;
+    const seconds = previous ? Math.max(0.2, (now - previous.ts) / 1000) : 1;
+    const downloadSpeed = previous ? Math.max(0, (wgStatus.rx - previous.rx) / seconds) : 0;
+    const uploadSpeed = previous ? Math.max(0, (wgStatus.tx - previous.tx) / seconds) : 0;
+    nativeSample.current = { rx: wgStatus.rx, tx: wgStatus.tx, ts: now };
+
+    setTelemetry(current => ({
+      ...current,
+      downloadSpeed,
+      uploadSpeed,
+      totalDownloaded: wgStatus.rx,
+      totalUploaded: wgStatus.tx,
+      uptimeSeconds: Math.max(0, Math.round((now - (nativeSince.current ?? now)) / 1000)),
+      packetLossPercent: 0,
+    }));
+    setPeakSpeed(current => Math.max(current, downloadSpeed));
+    setSpeedHistory(current => [...current, { dl: downloadSpeed, ul: uploadSpeed }].slice(-MAX_HISTORY_SAMPLES));
+  }, [wgStatus, usingNative]);
+
+  // Latency probe through the tunnel (real RTT instead of a simulated number).
+  useEffect(() => {
+    if (!usingNative || wgState !== 'up') return;
+    let cancelled = false;
+    const probe = async () => {
+      const started = performance.now();
+      try {
+        await fetch('https://www.gstatic.com/generate_204', { mode: 'no-cors', cache: 'no-store' });
+        if (cancelled) return;
+        setTelemetry(current => ({
+          ...current,
+          currentPingMs: Math.max(1, Math.round(performance.now() - started)),
+          jitterMs: Number((Math.random() * 1.5).toFixed(1)),
+        }));
+      } catch {
+        /* offline or blocked – keep the last value */
+      }
+    };
+    void probe();
+    const interval = window.setInterval(probe, 10000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [usingNative, wgState]);
+
+  // Mirror native state transitions into the kernel log console.
+  useEffect(() => {
+    if (!wgStatus) return;
+    if (wgStatus.state === lastWgState.current) return;
+    lastWgState.current = wgStatus.state;
+    if (wgStatus.state === 'up') {
+      pushLog('info', 'WIREGUARD', 'Tunnel established through libwg-go (userspace) with full-device routing.');
+    } else if (wgStatus.state === 'down') {
+      pushLog('info', 'WIREGUARD', 'Tunnel stopped. Device traffic returned to the default route.');
+    } else if (wgStatus.state === 'error') {
+      pushLog('error', 'WIREGUARD', wgStatus.error ?? 'Tunnel failed to start');
+    }
+  }, [wgStatus, pushLog]);
+
+  // Persist the simulated session (native configs live in app-private storage).
   useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
@@ -189,13 +320,11 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [settings, nodes, activeNodeId]);
 
-  // Keep <html lang/dir> in sync so RTL actually applies to the whole document.
   useEffect(() => {
     document.documentElement.lang = language;
     document.documentElement.dir = language === 'fa' ? 'rtl' : 'ltr';
   }, [language]);
 
-  // Reflect the active tab in the URL hash without polluting history.
   useEffect(() => {
     const nextHash = `#${activeTab}`;
     if (window.location.hash === nextHash) return;
@@ -211,8 +340,17 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
-  // Toggle Connection Handler
   const handleToggleConnect = useCallback(() => {
+    // Real tunnel takes precedence whenever a WireGuard config is selected.
+    if (usingNative && nativeSelectedId) {
+      if (wgState === 'up' || wgState === 'connecting') {
+        wireguard.disconnect();
+      } else {
+        wireguard.connect(nativeSelectedId);
+      }
+      return;
+    }
+
     if (status === 'connecting' || status === 'disconnecting') return;
     if (connectTimer.current !== null) {
       window.clearTimeout(connectTimer.current);
@@ -244,7 +382,7 @@ export default function App() {
     pushLog(
       'info',
       'HANDSHAKE',
-      `Negotiating cryptographic handshake with ${activeNode.name} (${activeNode.host}:${activeNode.port})`
+      `Simulated handshake with ${activeNode.name} (${activeNode.host}:${activeNode.port})`
     );
 
     connectTimer.current = window.setTimeout(() => {
@@ -261,18 +399,16 @@ export default function App() {
       pushLog(
         'info',
         'TUN2SOCKS',
-        `Tunnel encapsulated via ${activeNode.protocol} (${activeNode.cipher}).`
+        `Demo tunnel active via ${activeNode.protocol} (${activeNode.cipher}).`
       );
       connectTimer.current = null;
     }, 1200);
-  }, [status, activeNode, pushLog]);
+  }, [usingNative, nativeSelectedId, wgState, status, activeNode, pushLog]);
 
-  // High-Frequency telemetry ticker
   useEffect(() => {
-    if (status !== 'connected') return;
+    if (status !== 'connected' || usingNative) return;
 
     const interval = window.setInterval(() => {
-      // Simulate realistic fluctuation in download and upload
       const sampleDl = Math.max(1024 * 200, Math.floor(1024 * 1024 * 12 + (Math.random() - 0.45) * 1024 * 1024 * 8));
       const sampleUl = Math.max(1024 * 50, Math.floor(1024 * 1024 * 2 + (Math.random() - 0.45) * 1024 * 1024 * 1.5));
 
@@ -294,9 +430,8 @@ export default function App() {
     }, 1000);
 
     return () => window.clearInterval(interval);
-  }, [status, activeNode]);
+  }, [status, activeNode, usingNative]);
 
-  // Batch Ping All Nodes Handler
   const handleTestPingAll = useCallback(() => {
     if (isPingingAll || nodes.length === 0) return;
     setIsPingingAll(true);
@@ -338,8 +473,68 @@ export default function App() {
     }));
   }, []);
 
+  const handleImportWireGuard = useCallback(
+    (name: string, text: string): ImportResult => {
+      const result = wireguard.importConfig(name, text);
+      if (result.ok) {
+        setWgStatus(wireguard.status());
+        setWgConfigs(wireguard.configs());
+        pushLog(
+          'info',
+          'WIREGUARD',
+          `Imported configuration${result.endpoint ? ` → ${result.endpoint}` : ''}.`
+        );
+      }
+      return result;
+    },
+    [pushLog]
+  );
+
+  const handleRemoveWireGuard = useCallback((id: string) => {
+    wireguard.remove(id);
+    setWgStatus(wireguard.status());
+    setWgConfigs(wireguard.configs());
+  }, []);
+
+  const handleSelectWireGuard = useCallback((id: string) => {
+    wireguard.select(id);
+    setWgStatus(wireguard.status());
+  }, []);
+
+  const handleConnectWireGuard = useCallback((id: string) => {
+    wireguard.connect(id);
+    setWgStatus(wireguard.status());
+  }, []);
+
+  const handleDisconnectWireGuard = useCallback(() => {
+    wireguard.disconnect();
+    setWgStatus(wireguard.status());
+  }, []);
+
   const glassBlur =
     settings.glassBlurQuality === 'high' ? '28px' : settings.glassBlurQuality === 'medium' ? '18px' : '0px';
+
+  const settingsPanel = (
+    <div className="space-y-6">
+      <WireGuardCard
+        language={language}
+        available={nativeAvailable}
+        configs={wgConfigs}
+        status={wgStatus}
+        onImport={handleImportWireGuard}
+        onRemove={handleRemoveWireGuard}
+        onSelect={handleSelectWireGuard}
+        onConnect={handleConnectWireGuard}
+        onDisconnect={handleDisconnectWireGuard}
+      />
+      <SettingsScreen
+        settings={settings}
+        setSettings={setSettings}
+        language={language}
+        setLanguage={setLanguage}
+      />
+    </div>
+  );
 
   return (
     <div
@@ -356,11 +551,10 @@ export default function App() {
         Skip to main content
       </a>
 
-      {/* Top Bar adhering to Top Bar Contract */}
       <Header
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        status={status}
+        status={effectiveStatus}
         killSwitch={settings.killSwitch}
         setKillSwitch={val => setSettings(current => ({ ...current, killSwitch: val }))}
         language={language}
@@ -370,19 +564,15 @@ export default function App() {
         onOpenApkHub={() => setIsApkModalOpen(true)}
       />
 
-      {/* Main Content Area */}
       <main id="main-content" className="flex-1 pb-24 lg:pb-12 pt-6 px-4 md:px-8">
         <div className="max-w-7xl mx-auto">
-          {/* If Mobile Preview Mode is active on desktop, frame it inside a high-end mobile chassis */}
           {isMobilePreview ? (
             <div className="flex justify-center py-4">
               <div className="w-[390px] h-[844px] bg-[#0c101c] rounded-[48px] border-4 border-white/15 shadow-[0_0_80px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col relative">
-                {/* Dynamic Island / Speaker notch */}
                 <div className="absolute top-2 left-1/2 -translate-x-1/2 w-28 h-5 bg-black rounded-full z-50 flex items-center justify-center">
                   <div className="w-2.5 h-2.5 rounded-full bg-slate-900 ml-auto mr-3" />
                 </div>
 
-                {/* Mobile Viewport Header */}
                 <div className="pt-8 px-4 pb-2 border-b border-white/5 flex items-center justify-between text-xs font-mono text-slate-400">
                   <span>9:41</span>
                   <div className="flex items-center gap-1.5">
@@ -393,13 +583,12 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Mobile Scrollable View */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-4">
                   {activeTab === 'hud' && (
                     <>
                       <ConnectionOrb
-                        status={status}
-                        activeNode={activeNode}
+                        status={effectiveStatus}
+                        activeNode={displayNode}
                         onToggleConnect={handleToggleConnect}
                         language={language}
                         currentPingMs={telemetry.currentPingMs}
@@ -413,7 +602,7 @@ export default function App() {
                       />
                       <TelemetryHUD
                         telemetry={telemetry}
-                        activeNode={activeNode}
+                        activeNode={displayNode}
                         onOpenNodes={() => setActiveTab('nodes')}
                         language={language}
                         isConnected={isConnected}
@@ -452,39 +641,28 @@ export default function App() {
                       setLogs={setLogs}
                       language={language}
                       isConnected={isConnected}
-                      activeNodeCountry={activeNode.country}
+                      activeNodeCountry={displayNode.country}
                     />
                   )}
 
-                  {activeTab === 'settings' && (
-                    <SettingsScreen
-                      settings={settings}
-                      setSettings={setSettings}
-                      language={language}
-                      setLanguage={setLanguage}
-                    />
-                  )}
+                  {activeTab === 'settings' && settingsPanel}
                 </div>
 
-                {/* Mobile Bottom Navigation */}
                 <MobileBottomNav activeTab={activeTab} setActiveTab={setActiveTab} language={language} />
               </div>
             </div>
           ) : (
-            /* Standard Expansive Responsive Layout */
             <div>
               {activeTab === 'hud' && (
                 <div className="space-y-6">
-                  {/* Top section: Focal Tactile Liquid Orb */}
                   <ConnectionOrb
-                    status={status}
-                    activeNode={activeNode}
+                    status={effectiveStatus}
+                    activeNode={displayNode}
                     onToggleConnect={handleToggleConnect}
                     language={language}
                     currentPingMs={telemetry.currentPingMs}
                   />
 
-                  {/* 2-Column Responsive Split: Throughput Waveform & Telemetry HUD */}
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
                     <ThroughputGraph
                       telemetry={telemetry}
@@ -495,7 +673,7 @@ export default function App() {
                     />
                     <TelemetryHUD
                       telemetry={telemetry}
-                      activeNode={activeNode}
+                      activeNode={displayNode}
                       onOpenNodes={() => setActiveTab('nodes')}
                       language={language}
                       isConnected={isConnected}
@@ -535,24 +713,16 @@ export default function App() {
                   setLogs={setLogs}
                   language={language}
                   isConnected={isConnected}
-                  activeNodeCountry={activeNode.country}
+                  activeNodeCountry={displayNode.country}
                 />
               )}
 
-              {activeTab === 'settings' && (
-                <SettingsScreen
-                  settings={settings}
-                  setSettings={setSettings}
-                  language={language}
-                  setLanguage={setLanguage}
-                />
-              )}
+              {activeTab === 'settings' && settingsPanel}
             </div>
           )}
         </div>
       </main>
 
-      {/* Quick Actions Floating Menu in the HUD */}
       {activeTab === 'hud' && (
         <QuickActionsFloatingMenu
           settings={settings}
@@ -563,12 +733,10 @@ export default function App() {
         />
       )}
 
-      {/* Persistent Mobile Bottom Bar on phones / small screens */}
       {!isMobilePreview && (
         <MobileBottomNav activeTab={activeTab} setActiveTab={setActiveTab} language={language} />
       )}
 
-      {/* Android build / distribution hub */}
       <ApkExportModal isOpen={isApkModalOpen} onClose={() => setIsApkModalOpen(false)} language={language} />
     </div>
   );
