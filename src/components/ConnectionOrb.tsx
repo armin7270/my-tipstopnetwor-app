@@ -21,6 +21,15 @@ export const ConnectionOrb: React.FC<ConnectionOrbProps> = ({
   const t = TRANSLATIONS[language];
   const isConnected = status === 'connected';
   const isConnecting = status === 'connecting';
+  const isDisconnecting = status === 'disconnecting';
+  const isTransitioning = isConnecting || isDisconnecting;
+  const primaryLabel = isConnected
+    ? t.connectedShort
+    : isConnecting
+    ? t.connectingShort
+    : isDisconnecting
+    ? t.disconnecting
+    : t.disconnectedShort;
 
   return (
     <div className="flex flex-col items-center justify-center py-6 md:py-10 select-none">
@@ -50,12 +59,13 @@ export const ConnectionOrb: React.FC<ConnectionOrbProps> = ({
           {/* Main Tactile Button Orb */}
           <button
             onClick={onToggleConnect}
-            disabled={isConnecting}
+            disabled={isTransitioning}
             aria-label={isConnected ? t.disconnectPrompt : t.connectPrompt}
-            className={`group relative w-44 h-44 md:w-56 md:h-56 rounded-full flex flex-col items-center justify-center cursor-pointer transition-all duration-500 overflow-hidden focus:outline-none focus-visible:ring-4 focus-visible:ring-[#00f2fe]/50 ${
+            aria-busy={isTransitioning}
+            className={`group relative w-44 h-44 md:w-56 md:h-56 rounded-full flex flex-col items-center justify-center cursor-pointer transition-all duration-500 overflow-hidden focus:outline-none focus-visible:ring-4 focus-visible:ring-[#00f2fe]/50 disabled:cursor-wait ${
               isConnected
                 ? 'bg-gradient-to-b from-[#172e27] via-[#10241f] to-[#0d1c18] border-2 border-[#10b981]/60 shadow-[0_0_50px_rgba(16,185,129,0.35)]'
-                : isConnecting
+                : isTransitioning
                 ? 'bg-gradient-to-b from-[#14253a] via-[#111e30] to-[#0e1826] border-2 border-[#00f2fe]/60 shadow-[0_0_50px_rgba(0,242,254,0.35)]'
                 : 'bg-gradient-to-b from-[#1c2230] via-[#151a26] to-[#0f141f] border-2 border-white/15 hover:border-[#00f2fe]/50 shadow-[0_0_35px_rgba(0,0,0,0.6)]'
             }`}
@@ -74,7 +84,7 @@ export const ConnectionOrb: React.FC<ConnectionOrbProps> = ({
 
             {/* Central Icon */}
             <div className="relative z-10 transition-transform duration-300 group-hover:scale-105 group-active:scale-95">
-              {isConnecting ? (
+              {isTransitioning ? (
                 <RefreshCw className="w-12 h-12 md:w-16 md:h-16 text-[#00f2fe] animate-spin" />
               ) : isConnected ? (
                 <ShieldCheck className="w-12 h-12 md:w-16 md:h-16 text-[#10b981] drop-shadow-[0_0_15px_rgba(16,185,129,0.7)]" />
@@ -88,20 +98,20 @@ export const ConnectionOrb: React.FC<ConnectionOrbProps> = ({
               className={`relative z-10 mt-3 text-xs md:text-sm font-bold tracking-wider font-['Space_Grotesk'] uppercase transition-colors ${
                 isConnected
                   ? 'text-[#4edea3]'
-                  : isConnecting
+                  : isTransitioning
                   ? 'text-[#00f2fe]'
                   : 'text-white/80 group-hover:text-white'
               }`}
             >
-              {isConnected ? 'CONNECTED' : isConnecting ? 'CONNECTING...' : 'DISCONNECTED'}
+              {primaryLabel}
             </span>
 
             {/* Protocol & Ping pill */}
-            <div className="relative z-10 mt-1 flex items-center gap-1.5 text-[11px] font-mono text-[#b9cacb]">
+            <div className="relative z-10 mt-1 flex items-center gap-1.5 text-[11px] font-mono text-[#b9cacb]" dir="ltr">
               <span>{activeNode.protocol}</span>
               <span>·</span>
               <span className={isConnected ? 'text-[#4edea3] font-semibold' : 'text-[#849495]'}>
-                {isConnected ? `${currentPingMs} ms` : 'Standby'}
+                {isConnected ? `${currentPingMs} ms` : t.standby}
               </span>
             </div>
           </button>
@@ -118,16 +128,20 @@ export const ConnectionOrb: React.FC<ConnectionOrbProps> = ({
             </span>
           ) : isConnecting ? (
             <span className="text-[#00f2fe]">{t.connecting}</span>
+          ) : isDisconnecting ? (
+            <span className="text-[#f59e0b]">{t.disconnecting}</span>
           ) : (
             <span className="text-[#dfe2f1]">{t.disconnected}</span>
           )}
         </h2>
 
-        <p className="mt-1 text-xs text-[#b9cacb] font-mono">
+        <p className="mt-1 text-xs text-[#b9cacb] font-mono" aria-live="polite" dir="ltr">
           {isConnected
             ? `${activeNode.name} (${activeNode.country}) · tun0 tunnel active`
             : isConnecting
             ? `Negotiating REALITY TLS handshake with ${activeNode.host}...`
+            : isDisconnecting
+            ? `Releasing gVisor virtual adapter on ${activeNode.host}...`
             : t.connectPrompt}
         </p>
       </div>

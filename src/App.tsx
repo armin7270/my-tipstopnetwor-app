@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Header } from './components/Header.tsx';
 import { ConnectionOrb } from './components/ConnectionOrb.tsx';
 import { ThroughputGraph } from './components/ThroughputGraph.tsx';
@@ -29,221 +29,340 @@ import {
   CoreSettings,
 } from './types/index.ts';
 
+type TabId = 'hud' | 'nodes' | 'matrix' | 'diagnostics' | 'settings';
+
+const TAB_IDS: TabId[] = ['hud', 'nodes', 'matrix', 'diagnostics', 'settings'];
+const STORAGE_KEY = 'liquid-obsidian:state:v1';
+const MAX_LOG_ENTRIES = 200;
+const MAX_HISTORY_SAMPLES = 30;
+
+interface PersistedState {
+  settings: CoreSettings;
+  nodes: ServerNode[];
+  activeNodeId: string;
+}
+
+function isTabId(value: string | null): value is TabId {
+  return value !== null && (TAB_IDS as string[]).includes(value);
+}
+
+function isServerNode(value: unknown): value is ServerNode {
+  if (!value || typeof value !== 'object') return false;
+  const node = value as ServerNode;
+  return (
+    typeof node.id === 'string' &&
+    typeof node.name === 'string' &&
+    typeof node.host === 'string' &&
+    typeof node.port === 'number' &&
+    typeof node.pingMs === 'number'
+  );
+}
+
+/** Restore the last session so favorites, imported nodes and toggles survive a refresh. */
+function readPersistedState(): Partial<PersistedState> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Partial<PersistedState>;
+    const nodes = Array.isArray(parsed.nodes) ? parsed.nodes.filter(isServerNode) : [];
+    const settings =
+      parsed.settings && typeof parsed.settings === 'object'
+        ? { ...DEFAULT_SETTINGS, ...parsed.settings }
+        : undefined;
+    return { settings, nodes, activeNodeId: parsed.activeNodeId };
+  } catch {
+    return {};
+  }
+}
+
+/** `?tab=nodes` and `#nodes` produce shareable deep links into the shell. */
+function readInitialTab(): TabId {
+  if (typeof window === 'undefined') return 'hud';
+  const fromQuery = new URLSearchParams(window.location.search).get('tab');
+  if (isTabId(fromQuery)) return fromQuery;
+  const fromHash = window.location.hash.replace(/^#\/?/, '');
+  if (isTabId(fromHash)) return fromHash;
+  return 'hud';
+}
+
+const AUTO_START =
+  typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('autostart') === '1';
+
 export default function App() {
-  // Check autostart query param
-  const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
-  const autoStart = urlParams?.get('autostart') === '1';
+  // Single source of truth for locale lives inside settings.
+  const persisted = useMemo(readPersistedState, []);
+  const [settings, setSettings] = useState<CoreSettings>(() => persisted.settings ?? DEFAULT_SETTINGS);
+  const language = settings.language;
+
+  const setLanguage = useCallback((next: 'en' | 'fa') => {
+    setSettings(current => ({ ...current, language: next }));
+  }, []);
 
   // Navigation and Layout state
-  const [activeTab, setActiveTab] = useState<'hud' | 'nodes' | 'matrix' | 'diagnostics' | 'settings'>('hud');
+  const [activeTab, setActiveTab] = useState<TabId>(readInitialTab);
   const [isMobilePreview, setIsMobilePreview] = useState(false);
-  const [language, setLanguage] = useState<'en' | 'fa'>('en');
   const [isApkModalOpen, setIsApkModalOpen] = useState(false);
 
   // Network Core state
-  const [status, setStatus] = useState<ConnectionStatus>(autoStart ? 'connected' : 'disconnected');
-  const [nodes, setNodes] = useState<ServerNode[]>(INITIAL_NODES);
-  const [activeNode, setActiveNode] = useState<ServerNode>(INITIAL_NODES[0]);
+  const [status, setStatus] = useState<ConnectionStatus>(AUTO_START ? 'connected' : 'disconnected');
+  const [nodes, setNodes] = useState<ServerNode[]>(() =>
+    persisted.nodes && persisted.nodes.length > 0 ? persisted.nodes : INITIAL_NODES
+  );
+  const [activeNodeId, setActiveNodeId] = useState<string>(
+    () => persisted.activeNodeId ?? INITIAL_NODES[0].id
+  );
+
+  // Derive the active node from the list instead of keeping a stale copy.
+  const activeNode = useMemo(
+    () => nodes.find(node => node.id === activeNodeId) ?? nodes[0] ?? INITIAL_NODES[0],
+    [nodes, activeNodeId]
+  );
+
   const [rules, setRules] = useState<RouteRule[]>(INITIAL_RULES);
   const [appRoutes, setAppRoutes] = useState<AppSplitRoute[]>(INITIAL_APP_ROUTES);
-  const [connections, setConnections] = useState<ActiveConnection[]>(INITIAL_CONNECTIONS);
+  const [connections] = useState<ActiveConnection[]>(INITIAL_CONNECTIONS);
   const [logs, setLogs] = useState<CoreLogEntry[]>(INITIAL_LOGS);
-  const [settings, setSettings] = useState<CoreSettings>(DEFAULT_SETTINGS);
   const [isPingingAll, setIsPingingAll] = useState(false);
 
   // High-frequency telemetry state
-  const [telemetry, setTelemetry] = useState<TelemetryState>({
-    downloadSpeed: autoStart ? 14820000 : 0,
-    uploadSpeed: autoStart ? 2450000 : 0,
-    totalDownloaded: autoStart ? 1024 * 1024 * 84 : 1024 * 1024 * 42,
-    totalUploaded: autoStart ? 1024 * 1024 * 18 : 1024 * 1024 * 8,
+  const [telemetry, setTelemetry] = useState<TelemetryState>(() => ({
+    downloadSpeed: 0,
+    uploadSpeed: 0,
+    totalDownloaded: AUTO_START ? 1024 * 1024 * 84 : 0,
+    totalUploaded: AUTO_START ? 1024 * 1024 * 18 : 0,
     packetLossPercent: 0,
-    currentPingMs: activeNode.pingMs,
-    jitterMs: activeNode.jitterMs,
-    uptimeSeconds: autoStart ? 240 : 0,
-    activeSockets: 14,
-  });
+    currentPingMs: AUTO_START ? activeNode.pingMs : 0,
+    jitterMs: AUTO_START ? activeNode.jitterMs : 0,
+    uptimeSeconds: 0,
+    activeSockets: AUTO_START ? 14 : 0,
+  }));
 
-  const [speedHistory, setSpeedHistory] = useState<{ dl: number; ul: number }[]>([
-    { dl: 0, ul: 0 },
-    { dl: 1200000, ul: 200000 },
-    { dl: 4500000, ul: 800000 },
-    { dl: 11200000, ul: 1800000 },
-    { dl: 14820000, ul: 2450000 },
-  ]);
-
-  const [peakSpeed, setPeakSpeed] = useState<number>(1024 * 1024 * 24.5);
+  // Empty until the tunnel is up: no fabricated traffic while disconnected.
+  const [speedHistory, setSpeedHistory] = useState<{ dl: number; ul: number }[]>(() =>
+    AUTO_START ? [{ dl: 0, ul: 0 }] : []
+  );
+  const [peakSpeed, setPeakSpeed] = useState<number>(0);
   const isConnected = status === 'connected';
 
+  const connectTimer = useRef<number | null>(null);
+  const pingTimer = useRef<number | null>(null);
+
+  // Every timer is torn down on unmount so hot-reload / tab switches cannot leak.
+  useEffect(
+    () => () => {
+      if (connectTimer.current !== null) window.clearTimeout(connectTimer.current);
+      if (pingTimer.current !== null) window.clearTimeout(pingTimer.current);
+    },
+    []
+  );
+
+  const pushLog = useCallback(
+    (level: CoreLogEntry['level'], module: string, message: string) => {
+      const now = new Date();
+      const timestamp = `${now.toTimeString().slice(0, 8)}.${String(now.getMilliseconds()).padStart(3, '0')}`;
+      setLogs(prev =>
+        [
+          {
+            id: `log-${now.getTime()}-${Math.random().toString(36).slice(2, 6)}`,
+            timestamp,
+            level,
+            module,
+            message,
+          },
+          ...prev,
+        ].slice(0, MAX_LOG_ENTRIES)
+      );
+    },
+    []
+  );
+
+  // Persist the session (debounced) — quota/privacy-mode failures stay silent.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ settings, nodes, activeNodeId }));
+      } catch {
+        /* storage unavailable — keep the session in memory only */
+      }
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [settings, nodes, activeNodeId]);
+
+  // Keep <html lang/dir> in sync so RTL actually applies to the whole document.
+  useEffect(() => {
+    document.documentElement.lang = language;
+    document.documentElement.dir = language === 'fa' ? 'rtl' : 'ltr';
+  }, [language]);
+
+  // Reflect the active tab in the URL hash without polluting history.
+  useEffect(() => {
+    const nextHash = `#${activeTab}`;
+    if (window.location.hash === nextHash) return;
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}${nextHash}`);
+  }, [activeTab]);
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace(/^#\/?/, '');
+      if (isTabId(hash)) setActiveTab(hash);
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
   // Toggle Connection Handler
-  const handleToggleConnect = () => {
+  const handleToggleConnect = useCallback(() => {
+    if (status === 'connecting' || status === 'disconnecting') return;
+    if (connectTimer.current !== null) {
+      window.clearTimeout(connectTimer.current);
+      connectTimer.current = null;
+    }
+
     if (status === 'connected') {
       setStatus('disconnecting');
-      const now = new Date();
-      const timeStr = now.toTimeString().split(' ')[0] + '.' + now.getMilliseconds();
+      pushLog('warn', 'TUN2SOCKS', 'Initiated graceful tunnel shutdown. Releasing gVisor virtual adapter...');
 
-      setLogs(prev => [
-        {
-          id: `log-${Date.now()}`,
-          timestamp: timeStr,
-          level: 'warn',
-          module: 'TUN2SOCKS',
-          message: 'Initiated graceful tunnel shutdown. Releasing gVisor virtual adapter...',
-        },
-        ...prev,
-      ]);
-
-      setTimeout(() => {
+      connectTimer.current = window.setTimeout(() => {
         setStatus('disconnected');
-        setTelemetry(t => ({
-          ...t,
+        setTelemetry(current => ({
+          ...current,
           downloadSpeed: 0,
           uploadSpeed: 0,
           currentPingMs: 0,
           jitterMs: 0,
+          uptimeSeconds: 0,
+          activeSockets: 0,
         }));
+        setSpeedHistory([]);
+        connectTimer.current = null;
       }, 700);
-    } else if (status === 'disconnected') {
-      setStatus('connecting');
-      const now = new Date();
-      const timeStr = now.toTimeString().split(' ')[0] + '.' + now.getMilliseconds();
-
-      setLogs(prev => [
-        {
-          id: `log-${Date.now()}`,
-          timestamp: timeStr,
-          level: 'info',
-          module: 'HANDSHAKE',
-          message: `Negotiating cryptographic handshake with ${activeNode.name} (${activeNode.host}:${activeNode.port})`,
-        },
-        ...prev,
-      ]);
-
-      setTimeout(() => {
-        setStatus('connected');
-        const connectTime = new Date();
-        const cTimeStr = connectTime.toTimeString().split(' ')[0] + '.' + connectTime.getMilliseconds();
-
-        setLogs(prev => [
-          {
-            id: `log-${Date.now() + 1}`,
-            timestamp: cTimeStr,
-            level: 'info',
-            module: 'TUN2SOCKS',
-            message: `Tunnel encapsulated via ${activeNode.protocol} (${activeNode.cipher}). Zero packet drop verified.`,
-          },
-          ...prev,
-        ]);
-
-        setTelemetry(t => ({
-          ...t,
-          currentPingMs: activeNode.pingMs,
-          jitterMs: activeNode.jitterMs,
-        }));
-      }, 1200);
+      return;
     }
-  };
+
+    setStatus('connecting');
+    pushLog(
+      'info',
+      'HANDSHAKE',
+      `Negotiating cryptographic handshake with ${activeNode.name} (${activeNode.host}:${activeNode.port})`
+    );
+
+    connectTimer.current = window.setTimeout(() => {
+      setStatus('connected');
+      setSpeedHistory([{ dl: 0, ul: 0 }]);
+      setPeakSpeed(0);
+      setTelemetry(current => ({
+        ...current,
+        currentPingMs: activeNode.pingMs,
+        jitterMs: activeNode.jitterMs,
+        uptimeSeconds: 0,
+        activeSockets: 12,
+      }));
+      pushLog(
+        'info',
+        'TUN2SOCKS',
+        `Tunnel encapsulated via ${activeNode.protocol} (${activeNode.cipher}).`
+      );
+      connectTimer.current = null;
+    }, 1200);
+  }, [status, activeNode, pushLog]);
 
   // High-Frequency telemetry ticker
   useEffect(() => {
     if (status !== 'connected') return;
 
-    const interval = setInterval(() => {
+    const interval = window.setInterval(() => {
       // Simulate realistic fluctuation in download and upload
-      const baseDl = 1024 * 1024 * 12; // ~12MB/s
-      const jitterDl = (Math.random() - 0.45) * 1024 * 1024 * 8;
-      const currentDl = Math.max(1024 * 200, Math.floor(baseDl + jitterDl));
+      const sampleDl = Math.max(1024 * 200, Math.floor(1024 * 1024 * 12 + (Math.random() - 0.45) * 1024 * 1024 * 8));
+      const sampleUl = Math.max(1024 * 50, Math.floor(1024 * 1024 * 2 + (Math.random() - 0.45) * 1024 * 1024 * 1.5));
 
-      const baseUl = 1024 * 1024 * 2; // ~2MB/s
-      const jitterUl = (Math.random() - 0.45) * 1024 * 1024 * 1.5;
-      const currentUl = Math.max(1024 * 50, Math.floor(baseUl + jitterUl));
+      setTelemetry(current => ({
+        ...current,
+        downloadSpeed: sampleDl,
+        uploadSpeed: sampleUl,
+        totalDownloaded: current.totalDownloaded + sampleDl,
+        totalUploaded: current.totalUploaded + sampleUl,
+        uptimeSeconds: current.uptimeSeconds + 1,
+        currentPingMs: Math.max(18, activeNode.pingMs + Math.floor((Math.random() - 0.5) * 4)),
+        jitterMs: Number((Math.random() * 1.8 + 0.6).toFixed(1)),
+        packetLossPercent: Math.random() < 0.05 ? 0.1 : 0,
+        activeSockets: Math.max(4, Math.round(current.activeSockets + (Math.random() - 0.5) * 2)),
+      }));
 
-      setTelemetry(prev => {
-        const newDlTotal = prev.totalDownloaded + currentDl;
-        const newUlTotal = prev.totalUploaded + currentUl;
-        const pingFluctuation = Math.floor((Math.random() - 0.5) * 4);
-        const newPing = Math.max(18, activeNode.pingMs + pingFluctuation);
-
-        return {
-          ...prev,
-          downloadSpeed: currentDl,
-          uploadSpeed: currentUl,
-          totalDownloaded: newDlTotal,
-          totalUploaded: newUlTotal,
-          uptimeSeconds: prev.uptimeSeconds + 1,
-          currentPingMs: newPing,
-          jitterMs: Number((Math.random() * 1.8 + 0.6).toFixed(1)),
-        };
-      });
-
-      setPeakSpeed(prev => Math.max(prev, currentDl));
-
-      setSpeedHistory(prev => {
-        const next = [...prev, { dl: currentDl, ul: currentUl }];
-        if (next.length > 25) next.shift();
-        return next;
-      });
+      setPeakSpeed(prev => Math.max(prev, sampleDl));
+      setSpeedHistory(prev => [...prev, { dl: sampleDl, ul: sampleUl }].slice(-MAX_HISTORY_SAMPLES));
     }, 1000);
 
-    return () => clearInterval(interval);
+    return () => window.clearInterval(interval);
   }, [status, activeNode]);
 
   // Batch Ping All Nodes Handler
-  const handleTestPingAll = () => {
+  const handleTestPingAll = useCallback(() => {
+    if (isPingingAll || nodes.length === 0) return;
     setIsPingingAll(true);
     let index = 0;
 
     const pingStep = () => {
-      if (index >= nodes.length) {
+      const target = nodes[index];
+      if (!target) {
         setIsPingingAll(false);
+        pingTimer.current = null;
         return;
       }
 
       setNodes(prev =>
-        prev.map((n, i) => {
-          if (i === index) {
-            const simulatedPing = Math.max(22, Math.floor(n.pingMs + (Math.random() - 0.5) * 12));
-            const simulatedJitter = Number((Math.random() * 2 + 0.8).toFixed(1));
-            return {
-              ...n,
-              pingMs: simulatedPing,
-              jitterMs: simulatedJitter,
-            };
-          }
-          return n;
-        })
+        prev.map(node =>
+          node.id === target.id
+            ? {
+                ...node,
+                pingMs: Math.max(22, Math.floor(node.pingMs + (Math.random() - 0.5) * 12)),
+                jitterMs: Number((Math.random() * 2 + 0.8).toFixed(1)),
+              }
+            : node
+        )
       );
 
-      index++;
-      setTimeout(pingStep, 150);
+      index += 1;
+      pingTimer.current = window.setTimeout(pingStep, 150);
     };
 
     pingStep();
-  };
+  }, [isPingingAll, nodes]);
 
-  const handleSelectNode = (node: ServerNode) => {
-    setActiveNode(node);
-    setTelemetry(t => ({
-      ...t,
+  const handleSelectNode = useCallback((node: ServerNode) => {
+    setActiveNodeId(node.id);
+    setTelemetry(current => ({
+      ...current,
       currentPingMs: node.pingMs,
       jitterMs: node.jitterMs,
     }));
-  };
+  }, []);
+
+  const glassBlur =
+    settings.glassBlurQuality === 'high' ? '28px' : settings.glassBlurQuality === 'medium' ? '18px' : '0px';
 
   return (
     <div
       dir={language === 'fa' ? 'rtl' : 'ltr'}
-      className={`min-h-screen bg-[#0a0e18] text-[#dfe2f1] flex flex-col font-['Inter'] ${
-        language === 'fa' ? "font-['Vazirmatn']" : ''
+      style={{ '--glass-blur': glassBlur } as React.CSSProperties}
+      className={`min-h-screen bg-[#0a0e18] text-[#dfe2f1] flex flex-col ${
+        language === 'fa' ? "font-['Vazirmatn']" : "font-['Inter']"
       }`}
     >
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:start-3 focus:z-[60] focus:px-4 focus:py-2 focus:rounded-xl focus:bg-[#00f2fe] focus:text-slate-950 focus:text-sm focus:font-bold"
+      >
+        Skip to main content
+      </a>
+
       {/* Top Bar adhering to Top Bar Contract */}
       <Header
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         status={status}
         killSwitch={settings.killSwitch}
-        setKillSwitch={val => setSettings(s => ({ ...s, killSwitch: val }))}
+        setKillSwitch={val => setSettings(current => ({ ...current, killSwitch: val }))}
         language={language}
         setLanguage={setLanguage}
         isMobilePreview={isMobilePreview}
@@ -252,7 +371,7 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 pb-24 lg:pb-12 pt-6 px-4 md:px-8">
+      <main id="main-content" className="flex-1 pb-24 lg:pb-12 pt-6 px-4 md:px-8">
         <div className="max-w-7xl mx-auto">
           {/* If Mobile Preview Mode is active on desktop, frame it inside a high-end mobile chassis */}
           {isMobilePreview ? (
@@ -348,11 +467,7 @@ export default function App() {
                 </div>
 
                 {/* Mobile Bottom Navigation */}
-                <MobileBottomNav
-                  activeTab={activeTab}
-                  setActiveTab={setActiveTab}
-                  language={language}
-                />
+                <MobileBottomNav activeTab={activeTab} setActiveTab={setActiveTab} language={language} />
               </div>
             </div>
           ) : (
@@ -450,19 +565,11 @@ export default function App() {
 
       {/* Persistent Mobile Bottom Bar on phones / small screens */}
       {!isMobilePreview && (
-        <MobileBottomNav
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          language={language}
-        />
+        <MobileBottomNav activeTab={activeTab} setActiveTab={setActiveTab} language={language} />
       )}
 
-      {/* Android Pre-Built APK Package Hub Modal */}
-      <ApkExportModal
-        isOpen={isApkModalOpen}
-        onClose={() => setIsApkModalOpen(false)}
-        language={language}
-      />
+      {/* Android build / distribution hub */}
+      <ApkExportModal isOpen={isApkModalOpen} onClose={() => setIsApkModalOpen(false)} language={language} />
     </div>
   );
 }

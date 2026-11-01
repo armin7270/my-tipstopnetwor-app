@@ -29,7 +29,7 @@ export const QuickActionsFloatingMenu: React.FC<QuickActionsFloatingMenuProps> =
   onOpenApkHub,
 }) => {
   const t = TRANSLATIONS[language];
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [lastAction, setLastAction] = useState<string | null>(null);
 
   const addLog = (message: string, level: 'info' | 'warn' = 'info') => {
@@ -87,7 +87,7 @@ export const QuickActionsFloatingMenu: React.FC<QuickActionsFloatingMenuProps> =
   };
 
   return (
-    <div className="fixed bottom-20 lg:bottom-6 right-4 sm:right-8 z-40 max-w-sm w-full sm:w-auto">
+    <div className="hidden sm:block fixed bottom-20 sm:bottom-6 right-4 sm:right-8 z-40 max-w-sm w-full sm:w-auto">
       {/* Toast feedback notice */}
       {lastAction && (
         <div className="mb-2 py-1 px-3 text-center text-xs font-mono font-bold text-[#00f2fe] bg-[#0a0e18]/90 border border-[#00f2fe]/40 rounded-xl shadow-lg backdrop-blur-md animate-fade-in">

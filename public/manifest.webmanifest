@@ -1,0 +1,26 @@
+{
+  "name": "Liquid Obsidian Core",
+  "short_name": "Obsidian",
+  "description": "Networking HUD concept: routing matrix, per-app split tunneling and live throughput telemetry.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0a0e18",
+  "theme_color": "#0a0e18",
+  "categories": ["utilities", "productivity"],
+  "icons": [
+    {
+      "src": "./favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "./favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

@@ -7,8 +7,12 @@ import {
   getLatencyClassification,
   evaluateRouteRule,
   parseConfigUri,
+  cidrContains,
+  normalizeHostTarget,
+  domainMatches,
 } from './network-core.ts';
 import { RouteRule } from '../types/index.ts';
+import { INITIAL_RULES } from '../data/mock-nodes.ts';
 
 test('formatBytes formats zero, small, and multi-megabyte sizes correctly', () => {
   assert.equal(formatBytes(0), '0.00 B');
@@ -113,4 +117,93 @@ test('parseConfigUri parses vless and hysteria2 URLs', () => {
 
   // Invalid uri returns null
   assert.equal(parseConfigUri('random-invalid-string'), null);
+});
+
+test('cidrContains handles masks, host addresses and malformed input', () => {
+  assert.equal(cidrContains('10.0.0.0/8', '10.20.30.40'), true);
+  assert.equal(cidrContains('172.16.0.0/12', '172.31.255.1'), true);
+  assert.equal(cidrContains('172.16.0.0/12', '172.32.0.1'), false);
+  assert.equal(cidrContains('192.168.1.0/24', '192.168.1.0'), true);
+  assert.equal(cidrContains('0.0.0.0/0', '8.8.8.8'), true);
+  assert.equal(cidrContains('10.0.0.0/33', '10.0.0.1'), false);
+  assert.equal(cidrContains('not-a-cidr/8', '10.0.0.1'), false);
+});
+
+test('normalizeHostTarget strips scheme, port, path and brackets', () => {
+  assert.equal(normalizeHostTarget('https://API.Telegram.org:443/foo?x=1'), 'api.telegram.org');
+  assert.equal(normalizeHostTarget('[2001:db8::1]:8443'), '2001:db8::1');
+  assert.equal(normalizeHostTarget('example.com.'), 'example.com');
+  assert.equal(normalizeHostTarget('   '), '');
+});
+
+test('domainMatches only matches at a real label boundary', () => {
+  assert.equal(domainMatches('t.me', 't.me'), true);
+  assert.equal(domainMatches('cdn.t.me', 't.me'), true);
+  assert.equal(domainMatches('evil-t.me', 't.me'), false);
+  assert.equal(domainMatches('a.b.example.com', '*.example.com'), true);
+  assert.equal(domainMatches('example.com', '*.example.com'), true);
+  assert.equal(domainMatches('bank.ir', '*.ir'), true);
+});
+
+test('the seeded routing matrix resolves its documented presets', () => {
+  // Regression: the seed patterns are comma separated lists ("192.168.0.0/16, 10.0.0.0/8")
+  // and used to never match because the engine compared the whole string.
+  const lan = evaluateRouteRule('192.168.1.50', INITIAL_RULES);
+  assert.equal(lan.outbound, 'direct');
+  assert.equal(lan.matchedPattern, '192.168.0.0/16');
+
+  const ads = evaluateRouteRule('ad.doubleclick.net', INITIAL_RULES);
+  assert.equal(ads.outbound, 'block');
+
+  const iran = evaluateRouteRule('bank.ir', INITIAL_RULES);
+  assert.equal(iran.outbound, 'direct');
+
+  const telegram = evaluateRouteRule('api.telegram.org', INITIAL_RULES);
+  assert.equal(telegram.outbound, 'proxy');
+  assert.equal(telegram.matchedPattern, 'geosite:telegram');
+
+  const ai = evaluateRouteRule('chatgpt.com', INITIAL_RULES);
+  assert.equal(ai.outbound, 'proxy');
+  assert.equal(ai.matchedPattern, 'geosite:openai');
+
+  // Everything unmatched lands on the FINAL rule.
+  const rest = evaluateRouteRule('example.com', INITIAL_RULES);
+  assert.equal(rest.outbound, 'proxy');
+  assert.equal(rest.matchedPattern, 'FINAL (Default Outbound)');
+});
+
+test('parseConfigUri decodes vmess base64 payloads and SIP002 shadowsocks links', () => {
+  const vmessPayload = Buffer.from(
+    JSON.stringify({ v: '2', ps: 'Tokyo VMess', add: 'jp.example.com', port: '8443', id: 'uuid-1' })
+  ).toString('base64');
+  const vmess = parseConfigUri(`vmess://${vmessPayload}`);
+  assert.ok(vmess);
+  assert.equal(vmess?.protocol, 'VMess');
+  assert.equal(vmess?.host, 'jp.example.com');
+  assert.equal(vmess?.port, 8443);
+  assert.equal(vmess?.name, 'Tokyo VMess');
+
+  const ssUserInfo = Buffer.from('chacha20-ietf-poly1305:secret').toString('base64');
+  const ss = parseConfigUri(`ss://${ssUserInfo}@1.2.3.4:8388#My-SS`);
+  assert.ok(ss);
+  assert.equal(ss?.protocol, 'Shadowsocks');
+  assert.equal(ss?.host, '1.2.3.4');
+  assert.equal(ss?.port, 8388);
+  assert.equal(ss?.cipher, 'chacha20-ietf-poly1305');
+});
+
+test('parseConfigUri rejects unsupported schemes and malformed payloads', () => {
+  assert.equal(parseConfigUri('https://example.com'), null);
+  assert.equal(parseConfigUri('ftp://files.example.com'), null);
+  assert.equal(parseConfigUri(''), null);
+  assert.equal(parseConfigUri('vmess://not-base64!!'), null);
+  assert.equal(parseConfigUri('vless://uuid@'), null);
+});
+
+test('parseConfigUri handles bracketed IPv6 authorities and query ciphers', () => {
+  const parsed = parseConfigUri('trojan://pass@[2001:db8::1]:443?security=tls#v6-node');
+  assert.ok(parsed);
+  assert.equal(parsed?.host, '2001:db8::1');
+  assert.equal(parsed?.port, 443);
+  assert.equal(parsed?.cipher, 'TLS 1.3');
 });

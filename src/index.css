@@ -26,6 +26,12 @@
 
 :root {
   color-scheme: dark;
+  /* Overridden at runtime by the "Liquid Glass Specular Blur" setting. */
+  --glass-blur: 28px;
+}
+
+html {
+  scrollbar-gutter: stable;
 }
 
 body {
@@ -37,8 +43,8 @@ body {
 /* Glass panel specular border & refractive optical index */
 .liquid-glass {
   background: rgba(28, 31, 42, 0.65);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 0 16px 36px -10px rgba(0, 0, 0, 0.5),
               inset 0 1px 0 0 rgba(255, 255, 255, 0.12);
@@ -46,8 +52,8 @@ body {
 
 .liquid-glass-active {
   background: rgba(28, 31, 42, 0.78);
-  backdrop-filter: blur(28px) saturate(200%);
-  -webkit-backdrop-filter: blur(28px) saturate(200%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(200%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(200%);
   border: 1px solid rgba(0, 242, 254, 0.35);
   box-shadow: 0 20px 48px -12px rgba(0, 242, 254, 0.15),
               inset 0 1px 0 0 rgba(0, 242, 254, 0.4);
@@ -55,8 +61,8 @@ body {
 
 .liquid-glass-connected {
   background: rgba(28, 31, 42, 0.78);
-  backdrop-filter: blur(28px) saturate(200%);
-  -webkit-backdrop-filter: blur(28px) saturate(200%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(200%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(200%);
   border: 1px solid rgba(16, 185, 129, 0.4);
   box-shadow: 0 20px 48px -12px rgba(16, 185, 129, 0.2),
               inset 0 1px 0 0 rgba(16, 185, 129, 0.45);
@@ -64,10 +70,19 @@ body {
 
 .liquid-glass-danger {
   background: rgba(38, 20, 25, 0.75);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
   border: 1px solid rgba(239, 68, 68, 0.4);
   box-shadow: 0 20px 48px -12px rgba(239, 68, 68, 0.25);
+}
+
+/* Fallback when the browser has no backdrop-filter support (or blur is disabled). */
+@supports not (backdrop-filter: blur(1px)) {
+  .liquid-glass,
+  .liquid-glass-active,
+  .liquid-glass-connected {
+    background: rgba(22, 26, 36, 0.94);
+  }
 }
 
 /* Subtle glowing pulse animations */
@@ -93,12 +108,45 @@ body {
   }
 }
 
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .animate-liquid-cyan {
   animation: liquid-pulse-cyan 3.2s ease-in-out infinite;
 }
 
 .animate-liquid-emerald {
   animation: liquid-pulse-emerald 2.8s ease-in-out infinite;
+}
+
+.animate-fade-in {
+  animation: fade-in 180ms ease-out both;
+}
+
+/* Safe-area padding for the mobile bottom navigation */
+.pb-safe {
+  padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+/* Visible keyboard focus everywhere, since most controls reset outlines */
+:focus-visible {
+  outline: 2px solid rgba(0, 242, 254, 0.75);
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}
+
+/* Respect the OS "reduce motion" preference: the HUD is animation-heavy */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Custom scrollbar for cybernetic precision logs & tables */

@@ -163,7 +163,7 @@ export const DiagnosticsScreen: React.FC<DiagnosticsScreenProps> = ({
                   <td className="py-2.5 px-3">
                     <span className="text-[#00f2fe] font-bold">{conn.protocol}</span>
                   </td>
-                  <td className="py-2.5 px-3 text-[#dfe2f1]">{conn.destination}</td>
+                  <td className="py-2.5 px-3 text-[#dfe2f1]" dir="ltr">{conn.destination}</td>
                   <td className="py-2.5 px-3 text-right tabular-nums text-white/80">
                     {formatBytes(conn.uploadBytes)}
                   </td>
@@ -271,7 +271,7 @@ export const DiagnosticsScreen: React.FC<DiagnosticsScreenProps> = ({
                   {log.level}
                 </span>
                 <span className="text-[#849495] shrink-0">[{log.module}]</span>
-                <span className={`${color} break-all`}>{log.message}</span>
+                <span className={`${color} break-all`} dir="ltr">{log.message}</span>
               </div>
             );
           })}

@@ -4,29 +4,23 @@ import { RouteRule, ServerNode, ProtocolType } from '../types/index.ts';
  * Format bytes into human-readable string with binary units
  */
 export function formatBytes(bytes: number): string {
-  if (bytes === 0 || !Number.isFinite(bytes)) return '0.00 B';
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0.00 B';
   const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  const idx = Math.min(i, sizes.length - 1);
+  const idx = Math.min(Math.max(i, 0), sizes.length - 1);
   return `${(bytes / Math.pow(k, idx)).toFixed(idx === 0 ? 0 : 2)} ${sizes[idx]}`;
 }
 
 /**
- * Format bits per second into speed string
+ * Format a byte-per-second rate into a speed string
  */
 export function formatBitrate(bytesPerSec: number): string {
-  if (bytesPerSec <= 0 || !Number.isFinite(bytesPerSec)) return '0.0 KB/s';
+  if (!Number.isFinite(bytesPerSec) || bytesPerSec <= 0) return '0.0 KB/s';
   const k = 1024;
-  if (bytesPerSec < k) {
-    return `${bytesPerSec.toFixed(0)} B/s`;
-  }
-  if (bytesPerSec < k * k) {
-    return `${(bytesPerSec / k).toFixed(1)} KB/s`;
-  }
-  if (bytesPerSec < k * k * k) {
-    return `${(bytesPerSec / (k * k)).toFixed(2)} MB/s`;
-  }
+  if (bytesPerSec < k) return `${Math.round(bytesPerSec)} B/s`;
+  if (bytesPerSec < k * k) return `${(bytesPerSec / k).toFixed(1)} KB/s`;
+  if (bytesPerSec < k * k * k) return `${(bytesPerSec / (k * k)).toFixed(2)} MB/s`;
   return `${(bytesPerSec / (k * k * k)).toFixed(2)} GB/s`;
 }
 
@@ -34,16 +28,12 @@ export function formatBitrate(bytesPerSec: number): string {
  * Format duration in seconds into HH:MM:SS or MM:SS
  */
 export function formatDuration(seconds: number): string {
-  if (seconds < 0 || !Number.isFinite(seconds)) return '00:00';
+  if (!Number.isFinite(seconds) || seconds < 0) return '00:00';
   const hrs = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
   const secs = Math.floor(seconds % 60);
-
   const pad = (n: number) => n.toString().padStart(2, '0');
-  if (hrs > 0) {
-    return `${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
-  }
-  return `${pad(mins)}:${pad(secs)}`;
+  return hrs > 0 ? `${pad(hrs)}:${pad(mins)}:${pad(secs)}` : `${pad(mins)}:${pad(secs)}`;
 }
 
 /**
@@ -70,96 +60,437 @@ export function getLatencyClassification(pingMs: number): {
   return { color: '#ef4444', label: 'HIGH', bgClass: 'bg-red-500/10', textClass: 'text-red-400' };
 }
 
+/* -------------------------------------------------------------------------- */
+/* Host / IP / CIDR primitives                                                */
+/* -------------------------------------------------------------------------- */
+
+/** Parse a dotted-quad IPv4 string into an unsigned 32-bit integer. */
+export function parseIPv4(ip: string): number | null {
+  const parts = ip.trim().split('.');
+  if (parts.length !== 4) return null;
+  let value = 0;
+  for (const part of parts) {
+    if (!/^\d{1,3}$/.test(part)) return null;
+    const octet = Number(part);
+    if (octet > 255) return null;
+    value = value * 256 + octet;
+  }
+  return value >>> 0;
+}
+
+/** Check whether an IPv4 address falls inside a CIDR block (e.g. `10.0.0.0/8`). */
+export function cidrContains(cidr: string, ip: string): boolean {
+  const [base, rawBits] = cidr.split('/');
+  const baseInt = parseIPv4(base);
+  const ipInt = parseIPv4(ip);
+  if (baseInt === null || ipInt === null) return false;
+
+  const bits = rawBits === undefined ? 32 : Number(rawBits);
+  if (!Number.isInteger(bits) || bits < 0 || bits > 32) return false;
+  if (bits === 0) return true;
+
+  const mask = (0xffffffff << (32 - bits)) >>> 0;
+  return (baseInt & mask) === (ipInt & mask);
+}
+
 /**
- * Matches a destination host (e.g. 'discord.com' or '192.168.1.1') against routing rules
+ * Normalise a destination (URL, host:port, bracketed IPv6, FQDN with a trailing dot)
+ * down to the bare lowercase host that the rule engine compares against.
+ */
+export function normalizeHostTarget(destination: string): string {
+  let target = (destination ?? '').trim().toLowerCase();
+  if (!target) return '';
+  target = target.replace(/^[a-z0-9+.-]+:\/\//, ''); // strip scheme
+  target = target.replace(/[/?#].*$/, ''); // strip path / query / fragment
+  target = target.replace(/\.$/, ''); // strip DNS root dot
+
+  // Bracketed IPv6: [2001:db8::1]:443
+  const v6 = /^\[([^\]]+)\](?::\d+)?$/.exec(target);
+  if (v6) return v6[1];
+
+  // Only strip :port when there is exactly one colon (bare IPv6 has several)
+  const colons = (target.match(/:/g) ?? []).length;
+  if (colons === 1) target = target.replace(/:\d+$/, '');
+
+  return target;
+}
+
+/** Match a hostname against a domain pattern, supporting `*.example.com` and bare suffixes. */
+export function domainMatches(host: string, pattern: string): boolean {
+  const clean = pattern.trim().toLowerCase().replace(/^\./, '').replace(/\.$/, '');
+  if (!clean || !host) return false;
+  if (clean.startsWith('*.')) {
+    const root = clean.slice(2);
+    return host === root || host.endsWith(`.${root}`);
+  }
+  return host === clean || host.endsWith(`.${clean}`);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Rule engine                                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Minimal offline stand-in for the `geosite.dat` categories that this demo seeds.
+ * Real clients resolve these from the geosite database; here they are explicit
+ * suffix lists so the routing matrix can be evaluated deterministically.
+ */
+export const GEOSITE_DOMAINS: Record<string, string[]> = {
+  'category-ads-all': [
+    'doubleclick.net',
+    'googlesyndication.com',
+    'googleadservices.com',
+    'adservice.google.com',
+    '2mdn.net',
+    'adnxs.com',
+    'criteo.com',
+    'taboola.com',
+    'outbrain.com',
+    'scorecardresearch.com',
+    'moatads.com',
+    'zedo.com',
+    'ads-twitter.com',
+    'analytics.google.com',
+  ],
+  ir: ['ir'],
+  cn: [
+    'cn',
+    'baidu.com',
+    'qq.com',
+    'taobao.com',
+    'tmall.com',
+    'aliyun.com',
+    'weibo.com',
+    'bilibili.com',
+    '163.com',
+    'jd.com',
+    'sina.com.cn',
+    'sohu.com',
+    'youku.com',
+    'alipay.com',
+  ],
+  telegram: ['t.me', 'telegram.org', 'telegram.me', 'telegram.com', 'telesco.pe', 'telegra.ph', 'tdesktop.com', 'graph.org'],
+  openai: ['openai.com', 'chatgpt.com', 'chat.com', 'oaistatic.com', 'oaiusercontent.com', 'sora.com'],
+  'google-deepmind': ['deepmind.com', 'deepmind.google'],
+};
+
+/** Minimal offline stand-in for the `geoip.dat` categories used by the seed rules. */
+export const GEOIP_CIDRS: Record<string, string[]> = {
+  cn: [
+    '1.0.1.0/24',
+    '1.0.2.0/23',
+    '14.0.0.0/8',
+    '27.0.0.0/8',
+    '36.0.0.0/8',
+    '39.0.0.0/8',
+    '42.0.0.0/8',
+    '58.0.0.0/7',
+    '60.0.0.0/7',
+    '101.0.0.0/8',
+    '106.0.0.0/8',
+    '110.0.0.0/7',
+    '112.0.0.0/5',
+    '116.0.0.0/6',
+    '118.0.0.0/7',
+    '120.0.0.0/6',
+    '122.0.0.0/7',
+    '124.0.0.0/7',
+    '126.0.0.0/8',
+    '175.0.0.0/8',
+    '180.0.0.0/7',
+    '182.0.0.0/6',
+    '202.0.0.0/7',
+    '210.0.0.0/7',
+    '211.0.0.0/8',
+    '218.0.0.0/7',
+    '220.0.0.0/6',
+    '222.0.0.0/8',
+    '223.0.0.0/8',
+  ],
+  telegram: ['91.108.0.0/16', '91.105.192.0/23', '149.154.160.0/20'],
+};
+
+function matchGeosite(host: string, category: string): boolean {
+  const suffixes = GEOSITE_DOMAINS[category.toLowerCase()];
+  if (!suffixes) return false;
+  return suffixes.some(suffix => domainMatches(host, suffix));
+}
+
+function matchGeoip(host: string, category: string): boolean {
+  const cidrs = GEOIP_CIDRS[category.toLowerCase()];
+  if (!cidrs) return false;
+  return cidrs.some(cidr => cidrContains(cidr, host));
+}
+
+/**
+ * Evaluate a destination host against the ordered routing matrix.
+ *
+ * Supports the pattern syntax actually used by the seed data:
+ *   - `192.168.0.0/16` CIDR blocks, bare IPs and IP prefixes (`192.168.`)
+ *   - `*.example.com` wildcards and bare domain suffixes (`example.com`, `*.ir`)
+ *   - `geosite:<category>` / `geoip:<category>` tags
+ *   - `FINAL` as the terminal catch-all
+ *   - comma-separated lists of any of the above in a single rule
  */
 export function evaluateRouteRule(
   destination: string,
   rules: RouteRule[]
 ): { rule: RouteRule | null; outbound: 'proxy' | 'direct' | 'block'; matchedPattern: string } {
-  const cleanDest = destination.trim().toLowerCase();
+  const host = normalizeHostTarget(destination);
+  const isIp = parseIPv4(host) !== null;
+  let finalRule: RouteRule | null = null;
 
-  for (const rule of rules) {
-    if (!rule.enabled) continue;
+  if (host) {
+    for (const rule of rules) {
+      if (!rule.enabled) continue;
 
-    const pattern = rule.pattern.toLowerCase();
+      const tokens = rule.pattern
+        .split(',')
+        .map(token => token.trim())
+        .filter(Boolean);
 
-    // Check geosite or domain match
-    if (rule.type === 'domain' || rule.type === 'geosite') {
-      if (pattern.startsWith('*.')) {
-        const rootDomain = pattern.slice(2);
-        if (cleanDest === rootDomain || cleanDest.endsWith('.' + rootDomain)) {
-          return { rule, outbound: rule.outbound, matchedPattern: rule.pattern };
+      for (const token of tokens) {
+        const lower = token.toLowerCase();
+
+        // Terminal catch-all: remember it, keep scanning explicit rules.
+        if (lower === 'final' || lower.startsWith('final ')) {
+          if (!finalRule) finalRule = rule;
+          continue;
         }
-      } else if (cleanDest === pattern || cleanDest.endsWith('.' + pattern)) {
-        return { rule, outbound: rule.outbound, matchedPattern: rule.pattern };
-      }
-    } else if (rule.type === 'ip' || rule.type === 'geoip') {
-      // Simple prefix / exact IP match
-      if (cleanDest === pattern || cleanDest.startsWith(pattern.replace(/\/\d+$/, ''))) {
-        return { rule, outbound: rule.outbound, matchedPattern: rule.pattern };
+
+        if (lower.startsWith('geosite:')) {
+          if (matchGeosite(host, lower.slice('geosite:'.length))) {
+            return { rule, outbound: rule.outbound, matchedPattern: token };
+          }
+          continue;
+        }
+
+        if (lower.startsWith('geoip:')) {
+          if (isIp && matchGeoip(host, lower.slice('geoip:'.length))) {
+            return { rule, outbound: rule.outbound, matchedPattern: token };
+          }
+          continue;
+        }
+
+        if (lower.includes('/') && isIp && cidrContains(lower, host)) {
+          return { rule, outbound: rule.outbound, matchedPattern: token };
+        }
+
+        if (isIp && parseIPv4(lower) !== null) {
+          if (host === lower) return { rule, outbound: rule.outbound, matchedPattern: token };
+          continue;
+        }
+
+        // IPv4 prefix such as `192.168.`
+        if (isIp && /^\d{1,3}(\.\d{1,3}){0,3}\.?$/.test(lower) && host.startsWith(lower)) {
+          return { rule, outbound: rule.outbound, matchedPattern: token };
+        }
+
+        if (!isIp && domainMatches(host, lower)) {
+          return { rule, outbound: rule.outbound, matchedPattern: token };
+        }
       }
     }
   }
 
-  // Default outbound is proxy
+  if (finalRule) {
+    return { rule: finalRule, outbound: finalRule.outbound, matchedPattern: finalRule.pattern };
+  }
+
   return { rule: null, outbound: 'proxy', matchedPattern: 'default-proxy' };
 }
 
+/* -------------------------------------------------------------------------- */
+/* Share-link parsing                                                         */
+/* -------------------------------------------------------------------------- */
+
+const SUPPORTED_SCHEMES = new Set([
+  'vless',
+  'vmess',
+  'trojan',
+  'ss',
+  'shadowsocks',
+  'hysteria2',
+  'hy2',
+  'wireguard',
+  'wg',
+]);
+
+const DEFAULT_CIPHERS: Record<string, string> = {
+  VLESS: 'none (REALITY TLS)',
+  VMess: 'auto (AEAD)',
+  Trojan: 'TLS 1.3',
+  Shadowsocks: 'AEAD 2022',
+  Hysteria2: 'Salamander (QUIC UDP)',
+  WireGuard: 'ChaCha20-Poly1305',
+  TUIC: 'QUIC v5',
+};
+
+function decodeBase64Text(input: string): string | null {
+  try {
+    const normalized = input.replace(/-/g, '+').replace(/_/g, '/').replace(/\s+/g, '');
+    if (!normalized) return null;
+    const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+    return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function splitOnce(value: string, separator: string): [string, string] {
+  const index = value.indexOf(separator);
+  if (index === -1) return [value, ''];
+  return [value.slice(0, index), value.slice(index + separator.length)];
+}
+
+function parseHostPort(authority: string, fallbackPort: number): { host: string; port: number } {
+  const clean = authority.trim();
+  const v6 = /^\[([^\]]+)\](?::(\d+))?$/.exec(clean);
+  if (v6) {
+    return { host: v6[1], port: v6[2] ? Number(v6[2]) : fallbackPort };
+  }
+  const lastColon = clean.lastIndexOf(':');
+  if (lastColon > -1 && !clean.slice(lastColon + 1).includes(':')) {
+    const host = clean.slice(0, lastColon);
+    const port = Number(clean.slice(lastColon + 1));
+    return { host: host || clean, port: Number.isInteger(port) ? port : fallbackPort };
+  }
+  return { host: clean, port: fallbackPort };
+}
+
+function schemeToProtocol(scheme: string): ProtocolType {
+  switch (scheme) {
+    case 'vless':
+      return 'VLESS';
+    case 'vmess':
+      return 'VMess';
+    case 'hysteria2':
+    case 'hy2':
+      return 'Hysteria2';
+    case 'trojan':
+      return 'Trojan';
+    case 'ss':
+    case 'shadowsocks':
+      return 'Shadowsocks';
+    case 'wireguard':
+    case 'wg':
+      return 'WireGuard';
+    default:
+      return 'VLESS';
+  }
+}
+
 /**
- * Parses node configuration URIs (vless://, vmess://, hysteria2://, trojan://, ss://)
+ * Parse a subscription / share URI into a partial node.
+ *
+ * Handles `vless://`, `trojan://`, `hysteria2://`, `wireguard://` userinfo links,
+ * SIP002 `ss://` links (plain and base64), legacy base64 `vmess://` JSON payloads,
+ * bracketed IPv6 authorities and query flags such as `security=reality`.
+ * Unknown schemes return `null` instead of silently becoming a VLESS node.
  */
 export function parseConfigUri(uri: string): Partial<ServerNode> | null {
   try {
     const trimmed = uri.trim();
-    if (!trimmed.includes('://')) return null;
+    const match = /^([a-z0-9+.-]+):\/\//i.exec(trimmed);
+    if (!match) return null;
 
-    const [protocolPart, rest] = trimmed.split('://');
-    const protocolLower = protocolPart.toLowerCase();
+    const scheme = match[1].toLowerCase();
+    if (!SUPPORTED_SCHEMES.has(scheme)) return null;
 
-    let protocol: ProtocolType = 'VLESS';
-    if (protocolLower === 'vless') protocol = 'VLESS';
-    else if (protocolLower === 'vmess') protocol = 'VMess';
-    else if (protocolLower === 'hysteria2' || protocolLower === 'hy2') protocol = 'Hysteria2';
-    else if (protocolLower === 'trojan') protocol = 'Trojan';
-    else if (protocolLower === 'ss') protocol = 'Shadowsocks';
-    else if (protocolLower === 'wireguard' || protocolLower === 'wg') protocol = 'WireGuard';
-
-    // Handle standard userinfo@host:port#name
-    const hashIndex = rest.indexOf('#');
-    let name = 'Custom Node';
-    let body = rest;
-
-    if (hashIndex !== -1) {
-      name = decodeURIComponent(rest.slice(hashIndex + 1));
-      body = rest.slice(0, hashIndex);
-    }
-
-    let host = '127.0.0.1';
+    const rest = trimmed.slice(match[0].length);
+    let protocol = schemeToProtocol(scheme);
+    let host = '';
     let port = 443;
+    let name = '';
+    let cipher = DEFAULT_CIPHERS[protocol] ?? 'AEAD';
 
-    if (body.includes('@')) {
-      const atSplit = body.split('@');
-      const hostPort = atSplit[1].split('?')[0];
-      const hpSplit = hostPort.split(':');
-      if (hpSplit[0]) host = hpSplit[0];
-      if (hpSplit[1]) port = parseInt(hpSplit[1], 10) || 443;
-    } else if (body.includes(':')) {
-      const parts = body.split('?')[0].split(':');
-      if (parts[0]) host = parts[0];
-      if (parts[1]) port = parseInt(parts[1], 10) || 443;
+    if (scheme === 'vmess') {
+      const payload = splitOnce(rest, '#')[0].split('?')[0];
+      const decoded = decodeBase64Text(payload);
+      if (!decoded) return null;
+      let json: Record<string, unknown>;
+      try {
+        json = JSON.parse(decoded) as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+      host = String(json.add ?? json.host ?? '');
+      port = Number(json.port) || 443;
+      name = String(json.ps ?? json.remarks ?? '');
+      cipher = String(json.scy ?? DEFAULT_CIPHERS.VMess);
+    } else if (scheme === 'ss' || scheme === 'shadowsocks') {
+      const [beforeHash, hash] = splitOnce(rest, '#');
+      name = safeDecode(hash);
+      let body = beforeHash.split('?')[0];
+
+      if (body.includes('@')) {
+        const at = body.lastIndexOf('@');
+        let userinfo = body.slice(0, at);
+        body = body.slice(at + 1);
+        if (!userinfo.includes(':')) {
+          userinfo = decodeBase64Text(userinfo) ?? userinfo;
+        }
+        const [method] = userinfo.split(':');
+        cipher = method || DEFAULT_CIPHERS.Shadowsocks;
+      } else {
+        const decoded = decodeBase64Text(body);
+        if (!decoded) return null;
+        const at = decoded.lastIndexOf('@');
+        if (at < 0) return null;
+        const [method] = decoded.slice(0, at).split(':');
+        cipher = method || DEFAULT_CIPHERS.Shadowsocks;
+        body = decoded.slice(at + 1);
+      }
+
+      const parsed = parseHostPort(body, port);
+      host = parsed.host;
+      port = parsed.port;
+    } else {
+      const [beforeHash, hash] = splitOnce(rest, '#');
+      name = safeDecode(hash);
+      const [body, query] = splitOnce(beforeHash, '?');
+      const authority = body.slice(body.lastIndexOf('@') + 1);
+      const parsed = parseHostPort(authority, port);
+      host = parsed.host;
+      port = parsed.port;
+
+      const params = new URLSearchParams(query);
+      const security = (params.get('security') ?? '').toLowerCase();
+      if (security === 'reality') {
+        cipher = 'REALITY TLS (uTLS)';
+      } else if (security === 'tls' || security === 'xtls') {
+        cipher = 'TLS 1.3';
+      }
+      const method = params.get('method');
+      if (method) cipher = method;
     }
+
+    if (!host) return null;
+    if (!Number.isInteger(port) || port < 1 || port > 65535) port = 443;
+
+    // `wireguard://` authorities are sometimes written as `host:port` only.
+    const cleanHost = host.replace(/^\[|\]$/g, '').toLowerCase();
 
     return {
       id: `node-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      name: name || `${protocol} Node`,
+      name: (name || '').trim() || `${protocol} Node`,
       country: 'Global',
       countryCode: 'UN',
       flag: '🌐',
-      host,
+      host: cleanHost,
       port,
       protocol,
-      cipher: protocol === 'VLESS' ? 'none (REALITY TLS)' : 'ChaCha20-Poly1305',
+      cipher,
       pingMs: 0,
       jitterMs: 0,
       loadPercent: 15,
@@ -167,7 +498,7 @@ export function parseConfigUri(uri: string): Partial<ServerNode> | null {
       tags: ['Imported', protocol],
       features: {
         udp: true,
-        reality: protocol === 'VLESS',
+        reality: protocol === 'VLESS' || cipher.toLowerCase().includes('reality'),
         multiplex: true,
       },
     };
@@ -175,6 +506,10 @@ export function parseConfigUri(uri: string): Partial<ServerNode> | null {
     return null;
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Translations                                                               */
+/* -------------------------------------------------------------------------- */
 
 /**
  * Persian Translations Dictionary for Cross-Lingual Parity
@@ -195,10 +530,16 @@ export const TRANSLATIONS = {
     error: 'ROUTING PANIC',
     connectPrompt: 'TAP TO ENGAGE TUNNEL',
     disconnectPrompt: 'TAP TO DISCONNECT',
+    connectedShort: 'CONNECTED',
+    disconnectedShort: 'DISCONNECTED',
+    connectingShort: 'CONNECTING...',
+    standby: 'Standby',
     download: 'DOWNLOAD BITRATE',
     upload: 'UPLOAD BITRATE',
     peakThroughput: 'PEAK THROUGHPUT',
     totalTransfer: 'TOTAL TRANSFERRED',
+    totalDownload: 'Total DL',
+    totalUpload: 'Total UL',
     latency: 'LATENCY',
     jitter: 'JITTER',
     packetLoss: 'PACKET LOSS',
@@ -208,10 +549,14 @@ export const TRANSLATIONS = {
     killSwitch: 'KILL SWITCH',
     killSwitchDesc: 'Block non-tun socket leaks if connection drops',
     batchPing: 'TEST ALL NODES',
+    importing: 'PROBING NODES...',
     importConfig: 'IMPORT CONFIG / URL',
     activeNode: 'ACTIVE ROUTING NODE',
+    change: 'Change',
     filterAll: 'ALL NODES',
     searchNodes: 'Search node or country...',
+    noNodesFound: 'No nodes found',
+    noNodesHint: 'Try adjusting your search criteria or import a new configuration node.',
     ruleTesterTitle: 'Traffic Flow Evaluator',
     ruleTesterPlaceholder: 'Enter domain (e.g. telegram.org) or IP...',
     ruleTesterResult: 'Evaluated Outbound',
@@ -229,10 +574,22 @@ export const TRANSLATIONS = {
     autoConnectDesc: 'Auto-engage on untrusted networks',
     dohShort: 'DNS OVER HTTPS',
     dohDesc: 'Encrypted upstream DNS resolution',
-    apkHub: 'Android APK Hub',
-    apkHubDesc: 'Native pre-built APK packages for all CPU architectures',
+    apkHub: 'Android Build Hub',
+    apkHubDesc: 'Native build targets for every Android CPU architecture',
     apkDownload: 'Download APK',
     allCpuArchs: 'All CPU Architectures',
+    resetDefaults: 'RESET DEFAULTS',
+    close: 'Close',
+    cancel: 'Cancel',
+    throughputTitle: 'High-Frequency Throughput Telemetry',
+    throughputIdle: 'Throughput Monitor (Idle)',
+    rxDownload: 'RX Download',
+    txUpload: 'TX Upload',
+    liveStream: 'Telemetry Stream',
+    suspended: 'Pipeline Suspended',
+    uptime: 'UPTIME',
+    select: 'SELECT',
+    activeLabel: 'ACTIVE',
   },
   fa: {
     appTitle: 'هسته آبسیدین روان',
@@ -249,10 +606,16 @@ export const TRANSLATIONS = {
     error: 'خطای اتصال به سرور',
     connectPrompt: 'برای اتصال لمس کنید',
     disconnectPrompt: 'برای قطع اتصال لمس کنید',
+    connectedShort: 'متصل',
+    disconnectedShort: 'قطع',
+    connectingShort: 'در حال اتصال...',
+    standby: 'آماده',
     download: 'نرخ دانلود',
     upload: 'نرخ آپلود',
     peakThroughput: 'حداکثر پهنای باند',
     totalTransfer: 'کل حجم مصرفی',
+    totalDownload: 'کل دانلود',
+    totalUpload: 'کل آپلود',
     latency: 'تاخیر پینگ',
     jitter: 'نوسان تاخیر',
     packetLoss: 'افت بسته',
@@ -262,10 +625,14 @@ export const TRANSLATIONS = {
     killSwitch: 'کیل‌سوئیچ امنیتی',
     killSwitchDesc: 'مسدودسازی نشت ترافیک در صورت قطع ارتباط',
     batchPing: 'تست پینگ همه سرورها',
+    importing: 'در حال تست گره‌ها...',
     importConfig: 'ورود پیکربندی / لینک',
     activeNode: 'گره خروجی فعلی',
+    change: 'تغییر',
     filterAll: 'همه گره‌ها',
     searchNodes: 'جستجوی نام یا کشور...',
+    noNodesFound: 'گره‌ای پیدا نشد',
+    noNodesHint: 'معیارهای جستجو را تغییر دهید یا یک پیکربندی جدید وارد کنید.',
     ruleTesterTitle: 'ارزیاب مسیر ترافیک',
     ruleTesterPlaceholder: 'دامنه یا آدرس IP را وارد کنید...',
     ruleTesterResult: 'مسیر خروجی محاسبه‌شده',
@@ -283,9 +650,21 @@ export const TRANSLATIONS = {
     autoConnectDesc: 'اتصال خودکار در شبکه‌های ناشناس',
     dohShort: 'رمزنگاری DNS',
     dohDesc: 'رمزگذاری درخواست‌های دی‌ان‌اس',
-    apkHub: 'دریافت نسخه آماده APK',
-    apkHubDesc: 'بسته‌های نصبی آماده APK برای تمام معماری‌های پردازنده',
-    apkDownload: 'دانلود فایل APK',
+    apkHub: 'ساخت نسخه اندروید',
+    apkHubDesc: 'اهداف ساخت بومی برای تمام معماری‌های پردازنده اندروید',
+    apkDownload: 'دانلود APK',
     allCpuArchs: 'تمامی معماری‌های پردازنده',
+    resetDefaults: 'بازگشت به پیش‌فرض',
+    close: 'بستن',
+    cancel: 'انصراف',
+    throughputTitle: 'تله‌متری پرسرعت پهنای باند',
+    throughputIdle: 'پایش پهنای باند (بی‌کار)',
+    rxDownload: 'دریافت (RX)',
+    txUpload: 'ارسال (TX)',
+    liveStream: 'جریان تله‌متری',
+    suspended: 'جریان متوقف است',
+    uptime: 'مدت اتصال',
+    select: 'انتخاب',
+    activeLabel: 'فعال',
   },
 };

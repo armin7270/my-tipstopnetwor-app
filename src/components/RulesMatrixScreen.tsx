@@ -1,7 +1,34 @@
 import React, { useState } from 'react';
-import { Shield, GitBranch, ArrowRight, ToggleLeft, ToggleRight, CheckCircle2, Lock, Smartphone, Globe, Ban } from 'lucide-react';
+import {
+  Shield,
+  GitBranch,
+  ArrowRight,
+  ToggleLeft,
+  ToggleRight,
+  Lock,
+  Smartphone,
+  Globe,
+  Ban,
+  Send,
+  MessageSquare,
+  Terminal,
+  Music,
+  Gamepad2,
+  ShieldAlert,
+} from 'lucide-react';
 import { RouteRule, AppSplitRoute, CoreSettings } from '../types/index.ts';
 import { evaluateRouteRule, TRANSLATIONS } from '../utils/network-core.ts';
+
+/** Maps the `icon` name stored on each split-tunnel entry to a lucide component. */
+const APP_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  Send,
+  Globe,
+  MessageSquare,
+  Terminal,
+  Music,
+  Gamepad2,
+  ShieldAlert,
+};
 
 interface RulesMatrixScreenProps {
   rules: RouteRule[];
@@ -99,6 +126,9 @@ export const RulesMatrixScreen: React.FC<RulesMatrixScreenProps> = ({
             value={testInput}
             onChange={e => setTestInput(e.target.value)}
             placeholder={t.ruleTesterPlaceholder}
+            aria-label={t.ruleTesterPlaceholder}
+            dir="ltr"
+            spellCheck={false}
             className="flex-1 bg-[#0a0e18] border border-white/15 rounded-xl px-4 py-2.5 text-xs md:text-sm font-mono text-white placeholder-[#849495] focus:outline-none focus:border-[#4facfe]"
           />
 
@@ -120,7 +150,7 @@ export const RulesMatrixScreen: React.FC<RulesMatrixScreenProps> = ({
         <div className="mt-4 p-3.5 rounded-xl bg-[#0a0e18]/80 border border-white/10 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <span className="text-xs font-mono text-[#849495]">Input Target:</span>
-            <span className="text-xs md:text-sm font-mono font-bold text-white">{testInput || '(empty)'}</span>
+            <span className="text-xs md:text-sm font-mono font-bold text-white" dir="ltr">{testInput || '(empty)'}</span>
           </div>
 
           <div className="flex items-center gap-2">
@@ -135,12 +165,12 @@ export const RulesMatrixScreen: React.FC<RulesMatrixScreenProps> = ({
             </span>
           </div>
 
-          <div className="w-full text-[11px] font-mono text-[#849495] flex items-center gap-2 pt-2 border-t border-white/5">
+          <div className="w-full text-[11px] font-mono text-[#849495] flex flex-wrap items-center gap-2 pt-2 border-t border-white/5">
             <span>Matched Rule Pattern:</span>
-            <span className="text-white/80 font-bold">{evaluationResult.matchedPattern}</span>
+            <span className="text-white/80 font-bold" dir="ltr">{evaluationResult.matchedPattern}</span>
             {evaluationResult.rule && (
               <>
-                <span>·</span>
+                <span aria-hidden="true">·</span>
                 <span>Rule: {evaluationResult.rule.name}</span>
               </>
             )}
@@ -182,7 +212,7 @@ export const RulesMatrixScreen: React.FC<RulesMatrixScreenProps> = ({
                           <span className="text-[10px] font-mono text-slate-500 uppercase">Disabled</span>
                         )}
                       </h4>
-                      <p className="text-xs font-mono text-[#849495] mt-0.5">{rule.pattern}</p>
+                      <p className="text-xs font-mono text-[#849495] mt-0.5" dir="ltr">{rule.pattern}</p>
                     </div>
                   </div>
 
@@ -248,12 +278,12 @@ export const RulesMatrixScreen: React.FC<RulesMatrixScreenProps> = ({
                   className="bg-[#0f131d]/70 border border-white/5 rounded-xl p-3 flex items-center justify-between gap-3"
                 >
                   <div className="flex items-center gap-2.5">
-                    <div className="p-1.5 rounded-lg bg-white/5 border border-white/10 text-[#00f2fe]">
-                      <Globe className="w-4 h-4" />
+                    <div className="p-1.5 rounded-lg bg-white/5 border border-white/10 text-[#00f2fe]" aria-hidden="true">
+                      {React.createElement(APP_ICONS[app.icon] ?? Globe, { className: 'w-4 h-4' })}
                     </div>
                     <div>
                       <div className="text-xs font-bold text-white">{app.name}</div>
-                      <div className="text-[10px] font-mono text-[#849495] truncate max-w-[140px]">
+                      <div className="text-[10px] font-mono text-[#849495] truncate max-w-[140px]" dir="ltr">
                         {app.packageName}
                       </div>
                     </div>

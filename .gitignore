@@ -1,8 +1,40 @@
 node_modules/
 build/
 dist/
+dist-android/
+dist-ssr/
 coverage/
 .DS_Store
 *.log
+*.tsbuildinfo
+
+# local env files
 .env*
 !.env.example
+
+# Android build outputs and signing material (never commit these)
+android/.gradle/
+android/build/
+android/build-manual/
+android/app/build/
+android/local.properties
+android/keystore.properties
+android/keystore/
+android/release.jks
+android/app/src/main/assets/www/
+*.jks
+*.keystore
+
+# AI Studio scratch artifacts (large screenshots / prompts) — do not ship
+.aistudio/
+
+# hosting CLIs
+.vercel/
+.netlify/
+
+# editors
+.idea/
+*.swp
+
+# apksigner v4 signature sidecar
+*.idsig

@@ -1,0 +1,80 @@
+name: Android APK
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install web dependencies
+        run: npm ci
+
+      - name: Build web bundle for the WebView
+        run: npm run build:android
+
+      - name: Decode release keystore
+        if: env.HAS_KEYSTORE == 'true'
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/release.jks
+
+      - name: Assemble signed release APK
+        if: env.HAS_KEYSTORE == 'true'
+        working-directory: android
+        env:
+          OBSIDIAN_KEYSTORE: ${{ github.workspace }}/android/release.jks
+          OBSIDIAN_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          OBSIDIAN_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          OBSIDIAN_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Assemble debug APK (no signing secrets configured)
+        if: env.HAS_KEYSTORE != 'true'
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p release
+          find android/app/build/outputs/apk -name '*.apk' -exec cp {} release/ \;
+          cd release && sha256sum *.apk > SHA256SUMS.txt && ls -la
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: liquid-obsidian-apk
+          path: release/*
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.apk
+            release/SHA256SUMS.txt
+          generate_release_notes: true

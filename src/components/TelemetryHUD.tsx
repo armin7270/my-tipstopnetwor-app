@@ -40,7 +40,10 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
               {activeNode.name}
             </h3>
             <p className="text-xs text-[#b9cacb] font-mono">
-              {activeNode.country} · {activeNode.host}:{activeNode.port}
+              {activeNode.country} ·{' '}
+              <span dir="ltr">
+                {activeNode.host}:{activeNode.port}
+              </span>
             </p>
           </div>
         </div>
@@ -61,7 +64,7 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
             onClick={onOpenNodes}
             className="flex items-center gap-1 px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-mono text-white transition-colors cursor-pointer"
           >
-            <span>Change</span>
+            <span>{t.change}</span>
             <ChevronRight className="w-3.5 h-3.5 text-[#00f2fe]" />
           </button>
         </div>
@@ -79,23 +82,23 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
             {isConnected ? `${telemetry.currentPingMs} ms` : '--'}
           </div>
           <div className="mt-1 flex items-center justify-between text-[11px] font-mono">
-            <span className="text-[#849495]">Jitter</span>
+            <span className="text-[#849495]">{t.jitter}</span>
             <span className="text-[#00f2fe] tabular-nums">{isConnected ? `${telemetry.jitterMs} ms` : '--'}</span>
           </div>
         </div>
 
         {/* Metric 2: Encryption & Handshake */}
-        <div className="liquid-glass rounded-xl p-3.5 md:p-4">
+        <div className="liquid-glass rounded-xl p-3.5 md:p-4 min-w-0">
           <div className="flex items-center justify-between text-[#849495] mb-2">
             <span className="text-[11px] font-mono uppercase tracking-wider">{t.cipherSuite}</span>
             <Lock className="w-3.5 h-3.5 text-[#10b981]" />
           </div>
-          <div className="text-xs md:text-sm font-semibold font-mono text-white truncate" title={activeNode.cipher}>
+          <div className="text-[11px] md:text-xs font-semibold font-mono text-white leading-snug line-clamp-2" title={activeNode.cipher} dir="ltr">
             {activeNode.cipher}
           </div>
-          <div className="mt-1 flex items-center justify-between text-[11px] font-mono">
-            <span className="text-[#849495]">TLS Fingerprint</span>
-            <span className="text-[#4edea3]">chrome_120</span>
+          <div className="mt-1 flex items-center justify-between gap-2 text-[10px] font-mono">
+            <span className="text-[#849495] truncate">uTLS FP</span>
+            <span className="text-[#4edea3] shrink-0" dir="ltr">chrome_120</span>
           </div>
         </div>
 
@@ -115,7 +118,7 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
         {/* Metric 4: Streams & Session Uptime */}
         <div className="liquid-glass rounded-xl p-3.5 md:p-4">
           <div className="flex items-center justify-between text-[#849495] mb-2">
-            <span className="text-[11px] font-mono uppercase tracking-wider">UPTIME</span>
+            <span className="text-[11px] font-mono uppercase tracking-wider">{t.uptime}</span>
             <Clock className="w-3.5 h-3.5 text-[#f59e0b]" />
           </div>
           <div className="text-lg md:text-xl font-bold font-mono tabular-nums text-white">

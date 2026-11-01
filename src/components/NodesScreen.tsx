@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Search, Star, Radio, Plus, Check, RefreshCw, X, Globe, Shield, Zap } from 'lucide-react';
+import { Search, Star, Radio, Plus, Check, RefreshCw, X, Globe } from 'lucide-react';
 import { ServerNode } from '../types/index.ts';
 import { getLatencyClassification, parseConfigUri, TRANSLATIONS } from '../utils/network-core.ts';
+import { useDialog } from '../utils/use-dialog.ts';
 
 interface NodesScreenProps {
   nodes: ServerNode[];
@@ -28,6 +29,7 @@ export const NodesScreen: React.FC<NodesScreenProps> = ({
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importInput, setImportInput] = useState('');
   const [importError, setImportError] = useState('');
+  const importDialogRef = useDialog(isImportModalOpen, () => setIsImportModalOpen(false));
 
   // Filtering
   const filteredNodes = nodes.filter(node => {
@@ -57,14 +59,16 @@ export const NodesScreen: React.FC<NodesScreenProps> = ({
     }
 
     const parsed = parseConfigUri(importInput);
-    if (!parsed || !parsed.name) {
-      setImportError('Invalid protocol link. Supported formats: vless://, vmess://, hysteria2://, ss://, wireguard://');
+    if (!parsed || !parsed.host) {
+      setImportError(
+        'Invalid configuration link. Supported schemes: vless://, vmess://, hysteria2://, trojan://, ss://, wireguard://'
+      );
       return;
     }
 
     const newNode: ServerNode = {
       id: parsed.id || `node-${Date.now()}`,
-      name: parsed.name,
+      name: parsed.name ?? 'Custom Node',
       country: parsed.country || 'Global',
       countryCode: parsed.countryCode || 'UN',
       flag: parsed.flag || '🌐',
@@ -118,7 +122,7 @@ export const NodesScreen: React.FC<NodesScreenProps> = ({
             className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/15 text-xs font-mono font-medium text-white transition-all cursor-pointer disabled:opacity-50"
           >
             <RefreshCw className={`w-3.5 h-3.5 text-[#00f2fe] ${isPingingAll ? 'animate-spin' : ''}`} />
-            <span>{isPingingAll ? 'PROBING NODES...' : t.batchPing}</span>
+            <span>{isPingingAll ? t.importing : t.batchPing}</span>
           </button>
 
           <button
@@ -135,20 +139,24 @@ export const NodesScreen: React.FC<NodesScreenProps> = ({
       <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
         {/* Search Input */}
         <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#849495]" />
+          <Search className="absolute start-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#849495]" aria-hidden="true" />
           <input
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder={t.searchNodes}
-            className="w-full bg-[#171b26]/80 border border-white/10 rounded-xl pl-10 pr-4 py-2 text-xs md:text-sm text-white placeholder-[#849495] focus:outline-none focus:border-[#00f2fe]/50 font-mono"
+            aria-label={t.searchNodes}
+            dir="ltr"
+            className="w-full bg-[#171b26]/80 border border-white/10 rounded-xl ps-10 pe-10 py-2 text-xs md:text-sm text-white placeholder-[#849495] focus:outline-none focus:border-[#00f2fe]/50 font-mono"
           />
           {search && (
             <button
+              type="button"
               onClick={() => setSearch('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+              aria-label="Clear search"
+              className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
             >
-              <X className="w-3.5 h-3.5" />
+              <X className="w-3.5 h-3.5" aria-hidden="true" />
             </button>
           )}
         </div>
@@ -187,8 +195,18 @@ export const NodesScreen: React.FC<NodesScreenProps> = ({
           return (
             <div
               key={node.id}
+              role="button"
+              tabIndex={0}
+              aria-label={`Select ${node.name}, ${node.country}, ${node.protocol}`}
+              aria-pressed={isSelected}
               onClick={() => onSelectNode(node)}
-              className={`liquid-glass rounded-2xl p-4.5 cursor-pointer transition-all duration-300 relative group overflow-hidden ${
+              onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onSelectNode(node);
+                }
+              }}
+              className={`liquid-glass rounded-2xl p-4.5 cursor-pointer transition-all duration-300 relative group overflow-hidden focus-visible:ring-2 focus-visible:ring-[#00f2fe]/70 ${
                 isSelected
                   ? 'border-[#00f2fe]/60 bg-[#1c2a38]/80 shadow-[0_0_24px_rgba(0,242,254,0.15)]'
                   : 'hover:border-white/20 hover:bg-[#1f2433]/70'
@@ -205,7 +223,10 @@ export const NodesScreen: React.FC<NodesScreenProps> = ({
                       {node.name}
                     </h3>
                     <p className="text-xs text-[#849495] font-mono mt-0.5">
-                      {node.country} · {node.host}:{node.port}
+                      {node.country} ·{' '}
+                      <span dir="ltr">
+                        {node.host}:{node.port}
+                      </span>
                     </p>
                   </div>
                 </div>
@@ -225,7 +246,7 @@ export const NodesScreen: React.FC<NodesScreenProps> = ({
               <div className="mt-3 flex items-center gap-2 text-[11px] font-mono text-[#b9cacb]">
                 <span className="text-[#00f2fe] font-semibold">{node.protocol}</span>
                 <span>·</span>
-                <span className="truncate max-w-[130px]" title={node.cipher}>{node.cipher}</span>
+                <span className="truncate max-w-[130px]" title={node.cipher} dir="ltr">{node.cipher}</span>
                 {node.features.reality && (
                   <>
                     <span>·</span>
@@ -251,18 +272,19 @@ export const NodesScreen: React.FC<NodesScreenProps> = ({
                 <div>
                   {isSelected ? (
                     <span className="flex items-center gap-1 text-[11px] font-mono font-bold text-[#00f2fe] bg-[#00f2fe]/10 px-2.5 py-1 rounded-lg border border-[#00f2fe]/30">
-                      <Check className="w-3 h-3" />
-                      ACTIVE
+                      <Check className="w-3 h-3" aria-hidden="true" />
+                      {t.activeLabel}
                     </span>
                   ) : (
                     <button
+                      type="button"
                       onClick={e => {
                         e.stopPropagation();
                         onSelectNode(node);
                       }}
                       className="text-[11px] font-mono text-[#b9cacb] hover:text-white bg-white/5 hover:bg-white/10 px-2.5 py-1 rounded-lg border border-white/10 transition-colors"
                     >
-                      SELECT
+                      {t.select}
                     </button>
                   )}
                 </div>
@@ -274,30 +296,36 @@ export const NodesScreen: React.FC<NodesScreenProps> = ({
 
       {filteredNodes.length === 0 && (
         <div className="liquid-glass rounded-2xl p-12 text-center">
-          <Globe className="w-10 h-10 text-slate-500 mx-auto mb-3" />
-          <h3 className="text-base font-bold text-white font-['Space_Grotesk']">No nodes found</h3>
-          <p className="text-xs text-[#849495] font-mono mt-1">
-            Try adjusting your search criteria or import a new configuration node.
-          </p>
+          <Globe className="w-10 h-10 text-slate-500 mx-auto mb-3" aria-hidden="true" />
+          <h3 className="text-base font-bold text-white font-['Space_Grotesk']">{t.noNodesFound}</h3>
+          <p className="text-xs text-[#849495] font-mono mt-1">{t.noNodesHint}</p>
         </div>
       )}
 
       {/* Import Configuration Modal */}
       {isImportModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
-          <div className="liquid-glass rounded-2xl max-w-lg w-full p-6 border border-white/20 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md" role="presentation">
+          <div
+            ref={importDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="import-node-title"
+            className="liquid-glass rounded-2xl max-w-lg w-full p-6 border border-white/20 shadow-2xl space-y-4"
+          >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Plus className="w-5 h-5 text-[#00f2fe]" />
-                <h3 className="text-lg font-bold text-white font-['Space_Grotesk']">
+                <Plus className="w-5 h-5 text-[#00f2fe]" aria-hidden="true" />
+                <h3 id="import-node-title" className="text-lg font-bold text-white font-['Space_Grotesk']">
                   Import Node Configuration
                 </h3>
               </div>
               <button
+                type="button"
                 onClick={() => setIsImportModalOpen(false)}
+                aria-label={t.close}
                 className="text-slate-400 hover:text-white"
               >
-                <X className="w-5 h-5" />
+                <X className="w-5 h-5" aria-hidden="true" />
               </button>
             </div>
 
@@ -310,11 +338,14 @@ export const NodesScreen: React.FC<NodesScreenProps> = ({
               value={importInput}
               onChange={e => setImportInput(e.target.value)}
               placeholder="vless://... or hysteria2://... or ss://..."
+              aria-label="Configuration URI"
+              spellCheck={false}
+              dir="ltr"
               className="w-full bg-[#0a0e18] border border-white/15 rounded-xl p-3 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-[#00f2fe]/60"
             />
 
             {importError && (
-              <p className="text-xs text-red-400 font-mono">{importError}</p>
+              <p className="text-xs text-red-400 font-mono" role="alert">{importError}</p>
             )}
 
             {/* Quick Presets for User Testing */}

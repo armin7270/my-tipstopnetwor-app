@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Liquid Obsidian Core">
+  <defs>
+    <radialGradient id="orb" cx="35%" cy="28%" r="80%">
+      <stop offset="0%" stop-color="#7ff9ff" />
+      <stop offset="45%" stop-color="#00f2fe" />
+      <stop offset="100%" stop-color="#0b6f77" />
+    </radialGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.55" />
+      <stop offset="60%" stop-color="#ffffff" stop-opacity="0" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="#0a0e18" />
+  <circle cx="32" cy="32" r="20" fill="url(#orb)" />
+  <circle cx="32" cy="32" r="20" fill="url(#shine)" />
+  <path
+    d="M32 18l10 4v8.4c0 6.2-4.2 11.4-10 13-5.8-1.6-10-6.8-10-13V22l10-4z"
+    fill="#08131a"
+    fill-opacity="0.55"
+    stroke="#e0fdff"
+    stroke-width="2.2"
+    stroke-linejoin="round"
+  />
+  <path d="M27.6 31.6l3.2 3.3 6-6.2" fill="none" stroke="#4edea3" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

@@ -32,11 +32,11 @@ export const Header: React.FC<HeaderProps> = ({
   const isConnected = status === 'connected';
 
   return (
-    <header className="liquid-glass border-b border-white/10 sticky top-0 z-50 px-4 md:px-8 py-3 transition-colors duration-300">
-      <div className="max-w-7xl mx-auto flex items-center justify-between gap-4 md:gap-8">
+    <header className="liquid-glass border-b border-white/10 sticky top-0 z-50 px-3 sm:px-4 md:px-8 py-3 transition-colors duration-300">
+      <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 md:gap-8">
         {/* Zone 1: Brand wordmark (single line, single element) */}
-        <div className="flex items-center gap-3 shrink-0">
-          <div className="relative flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/15">
+        <div className="flex items-center gap-3 shrink-0 min-w-0">
+          <div className="relative flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/15 shrink-0">
             <Shield className={`w-4 h-4 transition-colors ${isConnected ? 'text-[#10b981]' : 'text-[#00f2fe]'}`} />
             {isConnected && (
               <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#10b981] animate-pulse" />
@@ -44,10 +44,13 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
           <button
             onClick={() => setActiveTab('hud')}
-            className="text-left group cursor-pointer focus:outline-none"
+            className="text-left group cursor-pointer focus:outline-none min-w-0"
           >
-            <span className="text-base md:text-lg font-bold tracking-tight text-white font-['Space_Grotesk'] whitespace-nowrap block">
+            <span className="hidden sm:block text-base md:text-lg font-bold tracking-tight text-white font-['Space_Grotesk'] whitespace-nowrap truncate">
               {t.appTitle}
+            </span>
+            <span className="sm:hidden text-sm font-bold tracking-tight text-white font-['Space_Grotesk'] whitespace-nowrap">
+              LOC
             </span>
           </button>
         </div>
@@ -126,7 +129,7 @@ export const Header: React.FC<HeaderProps> = ({
         </nav>
 
         {/* Zone 3: Primary Action & Quick Utilities */}
-        <div className="flex items-center gap-2 md:gap-3 shrink-0">
+        <div className="flex items-center gap-1.5 md:gap-3 shrink-0">
           {/* Mobile vs Desktop frame toggle (for testing & responsive fidelity) */}
           <button
             onClick={() => setIsMobilePreview(!isMobilePreview)}
@@ -162,14 +165,17 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Kill Switch Toggle Button */}
           <button
             onClick={() => setKillSwitch(!killSwitch)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-medium rounded-lg transition-all ${
+            aria-pressed={killSwitch}
+            aria-label={`Kill switch ${killSwitch ? 'on' : 'off'}`}
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-mono font-medium rounded-lg transition-all ${
               killSwitch
                 ? 'bg-[#ef4444]/20 border border-[#ef4444]/40 text-[#ffb4ab] hover:bg-[#ef4444]/30 shadow-[0_0_12px_rgba(239,68,68,0.25)]'
                 : 'bg-white/5 border border-white/10 text-white/60 hover:text-white'
             }`}
           >
             <AlertTriangle className={`w-3.5 h-3.5 ${killSwitch ? 'text-[#ef4444]' : 'text-slate-400'}`} />
-            <span className="whitespace-nowrap">KILL SWITCH: {killSwitch ? 'ON' : 'OFF'}</span>
+            <span className="hidden md:inline whitespace-nowrap">KILL SWITCH: {killSwitch ? 'ON' : 'OFF'}</span>
+            <span className="md:hidden font-bold">{killSwitch ? 'ON' : 'OFF'}</span>
           </button>
         </div>
       </div>

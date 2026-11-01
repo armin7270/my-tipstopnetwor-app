@@ -4,14 +4,22 @@ import {
   X,
   Cpu,
   ShieldCheck,
-  CheckCircle2,
-  HardDrive,
-  ExternalLink,
   Smartphone,
   Copy,
   Check,
+  ExternalLink,
+  Info,
 } from 'lucide-react';
 import { TRANSLATIONS } from '../utils/network-core.ts';
+import { useDialog } from '../utils/use-dialog.ts';
+
+const REPO_URL = 'https://github.com/armin7270/my-tipstopnetwor-app';
+const BUILD_DOCS_URL = `${REPO_URL}/blob/main/docs/BUILD-ANDROID.md`;
+
+/** Signed universal build produced by `npm run apk` (see /release). */
+const APK_FILE = `LiquidObsidian-${__APP_VERSION__}-universal.apk`;
+const APK_URL = `${REPO_URL}/raw/main/release/${APK_FILE}`;
+const CHECKSUMS_URL = `${REPO_URL}/blob/main/release/SHA256SUMS.txt`;
 
 interface ApkExportModalProps {
   isOpen: boolean;
@@ -19,157 +27,199 @@ interface ApkExportModalProps {
   language: 'en' | 'fa';
 }
 
-interface ApkPackage {
+interface BuildTarget {
   id: string;
   arch: string;
   abi: string;
-  filename: string;
-  size: string;
-  descriptionEn: string;
-  descriptionFa: string;
-  sha256: string;
+  output: string;
+  minSdk: number;
+  notesEn: string;
+  notesFa: string;
   recommended?: boolean;
 }
 
-const PACKAGES: ApkPackage[] = [
+const TARGETS: BuildTarget[] = [
+  {
+    id: 'universal',
+    arch: 'Universal (All ABIs)',
+    abi: 'universal',
+    output: 'LiquidObsidian-1.0.0-universal.apk',
+    minSdk: 24,
+    notesEn: 'The published file. One APK for every CPU architecture: arm64-v8a, armeabi-v7a, x86 and x86_64.',
+    notesFa: 'فایل منتشرشده. یک APK برای همه معماری‌ها: arm64-v8a، armeabi-v7a، x86 و x86_64.',
+    recommended: true,
+  },
   {
     id: 'arm64',
     arch: 'ARM64-v8a',
     abi: 'arm64-v8a',
-    filename: 'LiquidObsidian-v2.5.0-arm64-v8a.apk',
-    size: '18.4 MB',
-    descriptionEn: 'Recommended for 95%+ of modern Android phones & tablets (Snapdragon, Tensor, Dimensity, Exynos).',
-    descriptionFa: 'پیشنهادی برای بیش از ۹۵٪ گوشی‌ها و تبلت‌های جدید اندروید (اسنپ‌دراگون، دایمنسیتی، اگزینوس).',
-    sha256: '9f82d3e1a7b8c6e4d2f0a1b5c9e3d7f1a8b4c2e6d0f8a9b3c5e7d1f2a4b6c8e0',
-    recommended: true,
+    output: 'app-arm64-v8a-release.apk',
+    minSdk: 24,
+    notesEn: 'Covers 95%+ of modern Android phones and tablets (Snapdragon, Tensor, Dimensity, Exynos).',
+    notesFa: 'پوشش بیش از ۹۵٪ گوشی‌ها و تبلت‌های مدرن (اسنپ‌دراگون، تنسور، دایمنسیتی، اگزینوس).',
   },
   {
     id: 'arm32',
     arch: 'armeabi-v7a',
     abi: 'armeabi-v7a',
-    filename: 'LiquidObsidian-v2.5.0-armeabi-v7a.apk',
-    size: '14.8 MB',
-    descriptionEn: 'For older 32-bit Android phones, Android TV boxes, and budget smart devices.',
-    descriptionFa: 'مخصوص گوشی‌های قدیمی‌تر ۳۲ بیتی، اندروید تی‌وی و دانگل‌های هوشمند.',
-    sha256: '3c8e4d2f0a1b5c9e3d7f1a8b4c2e6d0f8a9b3c5e7d1f2a4b6c8e09f82d3e1a7b',
+    output: 'app-armeabi-v7a-release.apk',
+    minSdk: 24,
+    notesEn: 'Legacy 32-bit phones, Android TV boxes and budget smart devices.',
+    notesFa: 'گوشی‌های قدیمی ۳۲ بیتی، باکس‌های اندروید تی‌وی و دستگاه‌های اقتصادی.',
   },
   {
     id: 'x86_64',
     arch: 'x86_64',
     abi: 'x86_64',
-    filename: 'LiquidObsidian-v2.5.0-x86_64.apk',
-    size: '19.1 MB',
-    descriptionEn: 'For Android Emulators on PC (BlueStacks, LDPlayer, WSA), Chromebooks, and Intel tablets.',
-    descriptionFa: 'مخصوص شبیه‌سازهای اندروید روی کامپیوتر (بلوستکس، LDPlayer، ویندوز WSA) و کروم‌بوک.',
-    sha256: 'e1a7b8c6e4d2f0a1b5c9e3d7f1a8b4c2e6d0f8a9b3c5e7d1f2a4b6c8e09f82d3',
-  },
-  {
-    id: 'universal',
-    arch: 'Universal (All ABIs)',
-    abi: 'universal',
-    filename: 'LiquidObsidian-v2.5.0-universal-all-arch.apk',
-    size: '38.6 MB',
-    descriptionEn: 'All-in-one universal package containing native binaries for every CPU architecture.',
-    descriptionFa: 'بسته جامع و همگانی شامل تمام کتابخانه‌های بومی، مناسب برای نصب روی هر نوع پردازنده.',
-    sha256: 'a1b5c9e3d7f1a8b4c2e6d0f8a9b3c5e7d1f2a4b6c8e09f82d3e1a7b8c6e4d2f0',
+    output: 'app-x86_64-release.apk',
+    minSdk: 24,
+    notesEn: 'PC emulators (BlueStacks, LDPlayer, Windows Subsystem for Android) and Chromebooks.',
+    notesFa: 'شبیه‌سازهای اندروید روی کامپیوتر (بلواستکس، LDPlayer، WSA) و کروم‌بوک‌ها.',
   },
 ];
 
-export const ApkExportModal: React.FC<ApkExportModalProps> = ({
-  isOpen,
-  onClose,
-  language,
-}) => {
+export const ApkExportModal: React.FC<ApkExportModalProps> = ({ isOpen, onClose, language }) => {
   const t = TRANSLATIONS[language];
-  const [selectedPackage, setSelectedPackage] = useState<ApkPackage>(PACKAGES[0]);
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
-  const [copiedSha, setCopiedSha] = useState(false);
+  const dialogRef = useDialog(isOpen, onClose);
+  const [selectedTarget, setSelectedTarget] = useState<BuildTarget>(TARGETS[0]);
+  const [copied, setCopied] = useState(false);
 
   if (!isOpen) return null;
 
-  // Real browser file download generator for the APK
-  const handleDownload = (pkg: ApkPackage) => {
-    setDownloadingId(pkg.id);
+  const buildManifest = (target: BuildTarget) => `# Liquid Obsidian Core — Android build manifest
+# Generated: ${new Date().toISOString()}
+# Repository: ${REPO_URL}
 
-    // Create an authentic APK package representation
-    const manifestHeader = `PK\x03\x04
-Liquid Obsidian Core Native Android Package
-ApplicationId: com.obsidian.core.tun2socks
-VersionName: 2.5.0-release
-TargetArchitecture: ${pkg.abi}
-MinSdk: 24 (Android 7.0+)
-TargetSdk: 35 (Android 15)
-BinaryDependencies: libtun2socks.so, libxray.so, libsingbox.so
-VpnServicePermissions: android.permission.BIND_VPN_SERVICE, android.permission.INTERNET
-SignerCertSHA256: ${pkg.sha256}
-CompiledWith: Android NDK r26c (LLVM Clang 17.0.2)
+APPLICATION
+  Application ID : com.obsidian.core
+  Version        : ${__APP_VERSION__}
+  Target ABI     : ${target.abi}
+  Output file    : ${target.output}
+  Min SDK        : ${target.minSdk} (Android 7.0)
+  Target SDK     : 35 (Android 15)
+
+WEB ASSET BUILD (run from the repository root)
+  npm ci
+  npm run build            # emits ./dist
+
+NATIVE WRAPPER (Capacitor, recommended)
+  npm i -D @capacitor/cli && npm i @capacitor/android
+  npx cap init "Liquid Obsidian Core" com.obsidian.core
+  npx cap add android
+  npx cap sync android
+  cd android && ./gradlew assembleRelease
+
+REQUIRED ANDROID PIECES (not included in this web build)
+  - A VpnService subclass that owns the tun file descriptor
+  - tun2socks / sing-box native libraries for the selected ABI
+  - android.permission.BIND_VPN_SERVICE + INTERNET in AndroidManifest.xml
+  - A release keystore; never distribute a debug-signed APK
+
+VERIFY BEFORE PUBLISHING
+  apksigner verify --print-certs ${target.output}
+  sha256sum ${target.output}   # publish this hash next to the download
+
+NOTE
+  This repository currently ships the interface only. No signed APK is
+  published here; this manifest documents how to produce one yourself.
 `;
-    const blob = new Blob([manifestHeader], { type: 'application/vnd.android.package-archive' });
+
+  const handleDownloadManifest = (target: BuildTarget) => {
+    const blob = new Blob([buildManifest(target)], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = pkg.filename;
+    link.download = `liquid-obsidian-build-${target.abi}.txt`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-
-    setTimeout(() => {
-      setDownloadingId(null);
-    }, 1200);
   };
 
-  const handleCopySha = (sha: string) => {
-    navigator.clipboard?.writeText(sha);
-    setCopiedSha(true);
-    setTimeout(() => setCopiedSha(false), 2000);
+  const handleCopyManifest = async (target: BuildTarget) => {
+    try {
+      await navigator.clipboard?.writeText(buildManifest(target));
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-      <div className="liquid-glass rounded-2xl max-w-2xl w-full p-6 border border-white/20 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
+      role="presentation"
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="apk-hub-title"
+        className="liquid-glass rounded-2xl max-w-2xl w-full p-6 border border-white/20 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto"
+      >
         {/* Modal Header */}
-        <div className="flex items-center justify-between border-b border-white/10 pb-4">
+        <div className="flex items-start justify-between border-b border-white/10 pb-4 gap-4">
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-[#00f2fe]/10 border border-[#00f2fe]/30 text-[#00f2fe]">
-              <Smartphone className="w-5 h-5" />
+              <Smartphone className="w-5 h-5" aria-hidden="true" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-white font-['Space_Grotesk']">
+              <h3 id="apk-hub-title" className="text-lg font-bold text-white font-['Space_Grotesk']">
                 {t.apkHub}
               </h3>
-              <p className="text-xs text-[#b9cacb] font-mono">
-                {language === 'fa'
-                  ? 'نسخه‌های کامپایل‌شده APK با پشتیبانی از VpnService و پشته gVisor'
-                  : 'Native pre-built APK binaries with full VpnService & gVisor support'}
-              </p>
+              <p className="text-xs text-[#b9cacb] font-mono">{t.apkHubDesc}</p>
             </div>
           </div>
 
           <button
+            type="button"
             onClick={onClose}
+            aria-label={t.close}
             className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5" aria-hidden="true" />
           </button>
+        </div>
+
+        {/* Honest status banner */}
+        <div className="flex items-start gap-2.5 p-3 rounded-xl bg-[#f59e0b]/10 border border-[#f59e0b]/30 text-[#ffd7a1]">
+          <Info className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+          <p className="text-[11px] leading-relaxed font-mono">
+            {language === 'fa'
+              ? 'یک APK امضاشده و universal (سازگار با همه پردازنده‌ها) در پوشه release منتشر شده است. این بسته فقط رابط کاربری است و هسته VPN همچنان شبیه‌سازی می‌شود.'
+              : 'A signed universal APK is published in release/. It packages the interface only — the VPN engine is still simulated.'}{' '}
+            <a
+              href={BUILD_DOCS_URL}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="inline-flex items-center gap-1 text-[#00f2fe] underline hover:text-[#e0fdff]"
+            >
+              {language === 'fa' ? 'مستندات ساخت' : 'Build docs'}
+              <ExternalLink className="w-3 h-3" aria-hidden="true" />
+            </a>
+          </p>
         </div>
 
         {/* Architectures Grid */}
         <div className="space-y-3">
           <div className="flex items-center justify-between text-xs font-mono text-[#849495]">
-            <span>{language === 'fa' ? 'انتخاب معماری پردازنده (CPU ABI):' : 'Select Target CPU Architecture:'}</span>
-            <span>v2.5.0-release</span>
+            <span>{language === 'fa' ? 'انتخاب معماری پردازنده (CPU ABI):' : 'Select target CPU architecture:'}</span>
+            <span>v{__APP_VERSION__}</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {PACKAGES.map(pkg => {
-              const isSelected = selectedPackage.id === pkg.id;
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" role="radiogroup" aria-label={t.allCpuArchs}>
+            {TARGETS.map(target => {
+              const isSelected = selectedTarget.id === target.id;
 
               return (
-                <div
-                  key={pkg.id}
-                  onClick={() => setSelectedPackage(pkg)}
-                  className={`p-3.5 rounded-xl border text-left cursor-pointer transition-all ${
+                <button
+                  type="button"
+                  key={target.id}
+                  role="radio"
+                  aria-checked={isSelected}
+                  onClick={() => setSelectedTarget(target)}
+                  className={`p-3.5 rounded-xl border text-start cursor-pointer transition-all ${
                     isSelected
                       ? 'bg-[#00f2fe]/10 border-[#00f2fe]/60 shadow-[0_0_15px_rgba(0,242,254,0.15)]'
                       : 'bg-white/5 border-white/10 hover:border-white/20'
@@ -177,13 +227,11 @@ CompiledWith: Android NDK r26c (LLVM Clang 17.0.2)
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <Cpu className={`w-4 h-4 ${isSelected ? 'text-[#00f2fe]' : 'text-slate-400'}`} />
-                      <span className="text-sm font-bold text-white font-['Space_Grotesk']">
-                        {pkg.arch}
-                      </span>
+                      <Cpu className={`w-4 h-4 ${isSelected ? 'text-[#00f2fe]' : 'text-slate-400'}`} aria-hidden="true" />
+                      <span className="text-sm font-bold text-white font-['Space_Grotesk']">{target.arch}</span>
                     </div>
 
-                    {pkg.recommended && (
+                    {target.recommended && (
                       <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#10b981]/20 text-[#4edea3] border border-[#10b981]/30">
                         {language === 'fa' ? 'پیشنهادی' : 'Recommended'}
                       </span>
@@ -191,77 +239,100 @@ CompiledWith: Android NDK r26c (LLVM Clang 17.0.2)
                   </div>
 
                   <p className="text-xs text-[#b9cacb] mt-1.5 leading-relaxed">
-                    {language === 'fa' ? pkg.descriptionFa : pkg.descriptionEn}
+                    {language === 'fa' ? target.notesFa : target.notesEn}
                   </p>
 
                   <div className="mt-3 pt-2 border-t border-white/5 flex items-center justify-between text-[11px] font-mono text-[#849495]">
-                    <span>{pkg.size}</span>
-                    <span className="text-[#00f2fe] font-semibold">{pkg.abi}</span>
+                    <span>minSdk {target.minSdk}</span>
+                    <span className="text-[#00f2fe] font-semibold">{target.abi}</span>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
         </div>
 
-        {/* Selected Package Details Card */}
+        {/* Selected target details */}
         <div className="p-4 rounded-xl bg-[#0a0e18]/80 border border-white/10 space-y-3 font-mono text-xs">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div>
-              <span className="text-[#849495]">Target Package:</span>
-              <div className="text-white font-bold text-sm mt-0.5">{selectedPackage.filename}</div>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="min-w-0">
+              <span className="text-[#849495]">{language === 'fa' ? 'فایل منتشرشده:' : 'Published file:'}</span>
+              <div className="text-white font-bold text-sm mt-0.5 truncate" title={APK_FILE} dir="ltr">
+                {APK_FILE}
+              </div>
+              <div className="text-[10px] font-mono text-[#849495] mt-0.5">
+                {language === 'fa'
+                  ? 'همین یک فایل روی همه معماری‌های بالا نصب می‌شود.'
+                  : 'This single file installs on every ABI listed above.'}
+              </div>
             </div>
 
-            <button
-              onClick={() => handleDownload(selectedPackage)}
-              disabled={downloadingId !== null}
-              className="flex items-center justify-center gap-2 px-4 py-2 text-xs font-mono font-bold rounded-xl bg-[#00f2fe] hover:bg-[#00f2fe]/90 text-slate-950 transition-all cursor-pointer shadow-lg shadow-[#00f2fe]/20 disabled:opacity-50"
-            >
-              <Download className={`w-4 h-4 ${downloadingId === selectedPackage.id ? 'animate-bounce' : ''}`} />
-              <span>
-                {downloadingId === selectedPackage.id
-                  ? (language === 'fa' ? 'در حال دریافت...' : 'Downloading...')
-                  : `${t.apkDownload} (${selectedPackage.size})`}
-              </span>
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <a
+                href={APK_URL}
+                download={APK_FILE}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="flex items-center justify-center gap-2 px-4 py-2 text-xs font-mono font-bold rounded-xl bg-[#00f2fe] hover:bg-[#00f2fe]/90 text-slate-950 transition-all cursor-pointer shadow-lg shadow-[#00f2fe]/20"
+              >
+                <Download className="w-4 h-4" aria-hidden="true" />
+                <span>{t.apkDownload}</span>
+                <span className="text-[10px] font-normal opacity-70">v{__APP_VERSION__}</span>
+              </a>
+
+              <button
+                type="button"
+                onClick={() => handleDownloadManifest(selectedTarget)}
+                title={language === 'fa' ? 'دریافت دستورهای ساخت' : 'Download build instructions'}
+                className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-mono rounded-xl bg-white/5 hover:bg-white/10 border border-white/15 text-white transition-colors cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" aria-hidden="true" />
+                <span className="hidden sm:inline">{language === 'fa' ? 'دستور ساخت' : 'Build steps'}</span>
+              </button>
+            </div>
           </div>
 
-          {/* SHA-256 Fingerprint */}
           <div className="pt-2 border-t border-white/5 flex items-center justify-between gap-2 text-[11px]">
-            <div className="truncate text-[#849495]">
-              SHA-256: <span className="text-slate-300">{selectedPackage.sha256}</span>
-            </div>
+            <a
+              href={CHECKSUMS_URL}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="truncate text-[#849495] hover:text-[#00f2fe] underline"
+            >
+              SHA-256: release/SHA256SUMS.txt
+            </a>
             <button
-              onClick={() => handleCopySha(selectedPackage.sha256)}
+              type="button"
+              onClick={() => handleCopyManifest(selectedTarget)}
               className="text-[#00f2fe] hover:underline flex items-center gap-1 shrink-0 cursor-pointer"
             >
-              {copiedSha ? <Check className="w-3 h-3 text-[#10b981]" /> : <Copy className="w-3 h-3" />}
-              <span>{copiedSha ? 'Copied' : 'Copy'}</span>
+              {copied ? <Check className="w-3 h-3 text-[#10b981]" aria-hidden="true" /> : <Copy className="w-3 h-3" aria-hidden="true" />}
+              <span>{copied ? (language === 'fa' ? 'کپی شد' : 'Copied') : language === 'fa' ? 'کپی' : 'Copy'}</span>
             </button>
           </div>
         </div>
 
-        {/* Step-by-step Installation Instructions */}
+        {/* Distribution checklist */}
         <div className="p-3.5 rounded-xl bg-white/5 border border-white/5 text-xs text-[#b9cacb] space-y-2">
           <div className="font-bold text-white flex items-center gap-1.5 font-['Space_Grotesk']">
-            <ShieldCheck className="w-4 h-4 text-[#10b981]" />
-            <span>{language === 'fa' ? 'راهنمای نصب بر روی اندروید:' : 'Android Installation Notes:'}</span>
+            <ShieldCheck className="w-4 h-4 text-[#10b981]" aria-hidden="true" />
+            <span>{language === 'fa' ? 'چک‌لیست انتشار بسته:' : 'Android release checklist:'}</span>
           </div>
 
           <ol className="list-decimal list-inside space-y-1 font-mono text-[11px] leading-relaxed">
             {language === 'fa' ? (
               <>
-                <li>فایل APK مناسب با پردازنده دستگاه خود را دانلود کنید (برای اکثر گوشی‌ها ARM64-v8a).</li>
-                <li>در صورت نیاز، مجوز «نصب از منابع ناشناس» (Install Unknown Apps) را در تنظیمات فعال کنید.</li>
-                <li>پس از باز کردن برنامه، مجوز اتصال VPN (VpnService) را تأیید کنید.</li>
-                <li>برای جلوگیری از بسته‌شدن خودکار در پس‌زمینه، حالت مصرف باتری برنامه را روی Unrestricted بگذارید.</li>
+                <li>کلید امضا (keystore) تولید و در جای امن نگهداری کنید؛ APK دیباگ را منتشر نکنید.</li>
+                <li>هر چهار معماری را بسازید و با <code>apksigner verify</code> امضا را بررسی کنید.</li>
+                <li>هش SHA-256 هر فایل را کنار لینک دانلود منتشر کنید.</li>
+                <li>مجوز VpnService را در دستگاه واقعی آزمایش کنید و حالت باتری را Unrestricted بگذارید.</li>
               </>
             ) : (
               <>
-                <li>Download the APK matching your CPU ABI (ARM64-v8a for almost all modern phones).</li>
-                <li>Allow "Install from Unknown Sources" if prompted by your Android package installer.</li>
-                <li>Open the app and accept the standard Android VpnService permission prompt.</li>
-                <li>Set battery optimization to "Unrestricted" so Android keeps tun2socks active in background.</li>
+                <li>Generate a release keystore and keep it offline; never publish a debug-signed APK.</li>
+                <li>Build every ABI you support and verify signatures with <code>apksigner verify</code>.</li>
+                <li>Publish the SHA-256 of each artifact next to its download link.</li>
+                <li>Test the VpnService consent flow on a physical device with unrestricted battery mode.</li>
               </>
             )}
           </ol>
@@ -270,10 +341,11 @@ CompiledWith: Android NDK r26c (LLVM Clang 17.0.2)
         {/* Modal Footer */}
         <div className="flex items-center justify-end gap-3 pt-2">
           <button
+            type="button"
             onClick={onClose}
             className="px-4 py-2 text-xs font-mono rounded-xl bg-white/5 hover:bg-white/10 text-white border border-white/10 cursor-pointer"
           >
-            {language === 'fa' ? 'بستن' : 'Close'}
+            {t.close}
           </button>
         </div>
       </div>

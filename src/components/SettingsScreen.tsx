@@ -41,8 +41,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           onClick={handleResetDefaults}
           className="flex items-center gap-2 px-3.5 py-2 text-xs font-mono rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 transition-colors self-start cursor-pointer"
         >
-          <RotateCcw className="w-3.5 h-3.5" />
-          <span>Reset Defaults</span>
+          <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+          <span>{t.resetDefaults}</span>
         </button>
       </div>
 

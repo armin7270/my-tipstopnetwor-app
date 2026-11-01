@@ -1,0 +1,16 @@
+# Normalise text files, never touch binaries.
+* text=auto eol=lf
+
+*.apk binary
+*.jar binary
+*.jks binary
+*.keystore binary
+*.png binary
+*.jpg binary
+*.webp binary
+*.woff2 binary
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+gradlew text eol=lf
+*.sh text eol=lf
