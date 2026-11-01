@@ -71,7 +71,9 @@ jobs:
           retention-days: 30
 
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+        # Only signed builds are attached to a release; an unsigned/debug fallback
+        # would install fine but must not be mistaken for a distributable build.
+        if: startsWith(github.ref, 'refs/tags/') && env.HAS_KEYSTORE == 'true'
         uses: softprops/action-gh-release@v2
         with:
           files: |
